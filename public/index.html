@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tindahan POS</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1A2530">
+</head>
+<body>
+    <header>
+        <h1>Tindahan</h1>
+        <div id="sync-status" class="status-dot offline" title="Offline Mode"></div>
+    </header>
+
+    <nav id="bottom-nav">
+        <button data-view="dashboard" class="nav-btn active">📊 Dashboard</button>
+        <button data-view="pos" class="nav-btn">🛒 POS</button>
+        <button data-view="inventory" class="nav-btn">📦 Inventory</button>
+    </nav>
+
+    <main id="app-content">
+        <!-- Views will be injected here by app.js -->
+    </main>
+    <script src="obfuscated/db.js"></script>
+    <script src="obfuscated/app.js"></script>
+    <!-- <script src="db.js"></script>
+    <script src="app.js"></script> -->
+</body>
+</html>
