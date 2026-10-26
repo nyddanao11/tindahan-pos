@@ -2,11 +2,24 @@ const JavaScriptObfuscator = require('javascript-obfuscator');
 const fs = require('fs');
 const path = require('path');
 
+// 1. Define the list of files to obfuscate
+const filesToObfuscate = ['db.js', 'app.js', 'license.js'];
+
+// 2. Create the output directory
 const outDir = path.join(__dirname, 'public', 'obfuscated');
 fs.mkdirSync(outDir, { recursive: true });
 
-['db.js', 'app.js'].forEach(file => {
-  const code = fs.readFileSync(path.join(__dirname, 'public', file), 'utf8');
+// 3. Loop through the ACTUAL array variable, not a hardcoded list
+filesToObfuscate.forEach(file => {
+  const filePath = path.join(__dirname, 'public', file);
+  
+  // Check if file exists to prevent crashes if a file is missing
+  if (!fs.existsSync(filePath)) {
+    console.warn(`Warning: ${file} not found in public/ folder. Skipping.`);
+    return;
+  }
+
+  const code = fs.readFileSync(filePath, 'utf8');
 
   const result = JavaScriptObfuscator.obfuscate(code, {
     compact: true,
@@ -23,5 +36,7 @@ fs.mkdirSync(outDir, { recursive: true });
   });
 
   fs.writeFileSync(path.join(outDir, file), result.getObfuscatedCode());
-  console.log('Obfuscated:', file);
+  console.log('✅ Obfuscated:', file);
 });
+
+console.log('🎉 All files obfuscated successfully!');

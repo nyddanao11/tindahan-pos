@@ -9,21 +9,66 @@
     <meta name="theme-color" content="#1A2530">
 </head>
 <body>
-    <header>
-        <h1>Tindahan</h1>
-        <div id="sync-status" class="status-dot offline" title="Offline Mode"></div>
-    </header>
+    <!-- LICENSE GATE (Visible by default, hidden by license.js on success) -->
+    <div id="licenseGate" class="license-gate">
+        <div class="license-card">
+            <h2>Tindahan POS</h2>
+            <p id="dbStatus" class="muted">Verifying license...</p>
 
-    <nav id="bottom-nav">
-        <button data-view="dashboard" class="nav-btn active">📊 Dashboard</button>
-        <button data-view="pos" class="nav-btn">🛒 POS</button>
-        <button data-view="inventory" class="nav-btn">📦 Inventory</button>
-    </nav>
+            <div id="lcChecking" class="lc-state">
+                <div class="spinner"></div>
+                <p>Checking license status...</p>
+                <p class="muted" style="font-size:12px; margin-top:8px;">Requires internet for first activation.</p>
+            </div>
 
-    <main id="app-content">
-        <!-- Views will be injected here by app.js -->
-    </main>
+            <div id="lcActivating" class="lc-state" hidden>
+                <div class="spinner"></div>
+                <p>Activating your license...</p>
+            </div>
+
+            <div id="lcPurchaseWall" class="lc-state" hidden>
+                <p class="danger-text">License required to use this app.</p>
+                <p class="muted">Please enter your activation token.</p>
+                <input type="text" id="lcTokenInput" placeholder="Paste activation token or link here" style="margin-top:12px;">
+                <p id="lcInlineError" class="danger-text" hidden style="font-size:13px; margin-top:8px;"></p>
+                <button id="lcActivateBtn" class="btn-primary" style="margin-top:12px;">Activate License</button>
+                <a href="https://yeilvastore.com" target="_blank" class="link" style="display:block; text-align:center; margin-top:16px;">Buy a license at yeilvastore.com</a>
+            </div>
+
+            <div id="lcErrorState" class="lc-state" hidden>
+                <p class="danger-text" id="lcErrorMsg"></p>
+                <button onclick="window.location.reload()" class="btn-primary" style="margin-top:12px;">Try Again</button>
+            </div>
+
+            <div id="lcSuccess" class="lc-state" hidden>
+                <p class="success-text" style="font-size:18px; font-weight:700;">✓ Activation Successful!</p>
+                <p id="lcSuccessEmail" class="muted" style="margin-top:8px;"></p>
+                <p class="muted" style="margin-top:16px; font-size:13px; line-height:1.4;">For the best offline experience, please install this app to your phone's home screen.</p>
+                <button id="lcOpenAppBtn" class="btn-primary" style="margin-top:16px;">Open Tindahan POS</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN APP (Hidden until license is verified) -->
+    <div id="app-shell" hidden>
+        <header>
+            <h1>Tindahan</h1>
+            <div id="sync-status" class="status-dot offline" title="Offline Mode"></div>
+        </header>
+
+        <nav id="bottom-nav">
+            <button data-view="dashboard" class="nav-btn active">📊 Dashboard</button>
+            <button data-view="pos" class="nav-btn">🛒 POS</button>
+            <button data-view="inventory" class="nav-btn">📦 Inventory</button>
+            <button data-view="reports" class="nav-btn">📈 Reports</button> <!-- NEW -->
+        </nav>
+
+        <main id="app-content"></main>
+    </div>
+
+    <!-- Scripts: db first, app second (defines __bootApp), license last (calls __bootApp) -->
     <script src="obfuscated/db.js"></script>
     <script src="obfuscated/app.js"></script>
+    <script src="obfuscated/license.js"></script>
 </body>
 </html>

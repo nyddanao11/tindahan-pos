@@ -177,3 +177,61 @@ function compressImage(file, maxWidth = 320) {
     reader.readAsDataURL(file);
   });
 }
+
+// Add to db.js
+async function archiveOldSales(monthsToKeep = 12) {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - monthsToKeep);
+  const cutoffISO = cutoff.toISOString();
+
+  const t = db.transaction(['sales', 'sales_archive'], 'readwrite');
+  const sales = t.objectStore('sales');
+  const archive = t.objectStore('sales_archive');
+
+  const allSales = await new Promise((resolve, reject) => {
+    const req = sales.getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+  const toArchive = allSales.filter(s => s.createdAt < cutoffISO);
+  
+  if (toArchive.length === 0) return 0;
+
+  toArchive.forEach(sale => {
+    archive.put(sale);
+    sales.delete(sale.id);
+  });
+
+  return new Promise((resolve, reject) => {
+    t.oncomplete = () => resolve(toArchive.length);
+    t.onerror = () => reject(t.error);
+  });
+}
+
+// Add to objectStore creation in initDB()
+if (!database.objectStoreNames.contains('sales_archive')) {
+  const archiveStore = database.createObjectStore('sales_archive', { keyPath: 'id', autoIncrement: true });
+  archiveStore.createIndex('createdAt', 'createdAt');
+}
+
+async function checkStorageUsage() {
+  if (!navigator.storage || !navigator.storage.estimate) return null;
+  
+  const estimate = await navigator.storage.estimate();
+  const usedMB = (estimate.usage / 1024 / 1024).toFixed(2);
+  const quotaMB = (estimate.quota / 1024 / 1024).toFixed(0);
+  const percentUsed = ((estimate.usage / estimate.quota) * 100).toFixed(1);
+
+  return { usedMB, quotaMB, percentUsed };
+}
+
+// In renderDashboard()
+const storage = await checkStorageUsage();
+if (storage && storage.percentUsed > 80) {
+  // Show warning
+  <div class="card attention">
+    <p class="warn-text">⚠️ Storage is ${storage.percentUsed}% full (${storage.usedMB} MB / ${storage.quotaMB} MB)</p>
+    <p class="muted">Consider exporting a backup and clearing old sales.</p>
+  </div>
+}

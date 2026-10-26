@@ -64,8 +64,10 @@ function thumb(item, size = 60) {
 }
 
 /* ---------------- BOOT ---------------- */
+window.__bootApp = async () => {
+  const appShell = document.getElementById('app-shell');
+  if (appShell) appShell.hidden = false;
 
-document.addEventListener('DOMContentLoaded', async () => {
   try { await initDB(); }
   catch (err) {
     app.innerHTML = `<div class="card"><h2>Storage unavailable</h2>
@@ -84,7 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
-});
+};
 
 function updateStatus(online) {
   const dot = $('#sync-status');
@@ -96,18 +98,19 @@ function updateStatus(online) {
 
 function setupNav() {
   document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.onclick = () => {
-      document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b === btn));
-      state.view = btn.dataset.view;
-      if (state.view === 'dashboard') renderDashboard();
-      if (state.view === 'pos') renderPOS();
-      if (state.view === 'inventory') renderInventory();
-    };
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const view = btn.dataset.view;
+      if (view === 'dashboard') renderDashboard();
+      if (view === 'pos') renderPOS();
+      if (view === 'inventory') renderInventory();
+      if (view === 'reports') renderReports();
+    });
   });
 }
 
 /* ---------------- ONE GLOBAL CLICK HANDLER ---------------- */
-
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('[data-action]');
   if (!b || b.disabled) return;
@@ -124,7 +127,6 @@ document.addEventListener('click', async (e) => {
 
     case 'edit-item': await startEdit(id); break;
     case 'delete-item': await removeItem(id); break;
-
     case 'cancel-edit':
       state.editingId = null; state.showForm = false; state.formImage = '';
       await renderInventory();
@@ -163,11 +165,31 @@ document.addEventListener('click', async (e) => {
     case 'view-sale': await showReceipt(id); break;
     case 'export': await exportBackup(); break;
     case 'import': if ($('#import-file')) $('#import-file').click(); break;
+    case 'export-csv': exportReportToCSV(); break;
+    case 'print-report': printReport(); break;
+    
+    case 'clear-old-sales':
+      if (!confirm('This will permanently delete all sales older than 2 years. Export a backup first. Continue?')) return;
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 2);
+      const allSales = await getAllSales();
+      const oldSales = allSales.filter(s => new Date(s.createdAt) < cutoff);
+      
+      if (!oldSales.length) { toast('No old sales to delete.'); break; }
+      
+      // Note: 'db' is globally available from db.js
+      const t = db.transaction('sales', 'readwrite');
+      oldSales.forEach(s => t.objectStore('sales').delete(s.id));
+      t.oncomplete = () => {
+        toast(`Deleted ${oldSales.length} old sales.`);
+        renderDashboard();
+      };
+      t.onerror = () => toast('Failed to delete old sales.', 'error');
+      break;
   }
 });
 
 /* ---------------- DASHBOARD ---------------- */
-
 async function renderDashboard() {
   const [items, sales] = await Promise.all([getAllItems(), getAllSales()]);
   state.items = items;
@@ -226,14 +248,23 @@ async function renderDashboard() {
 
     <div class="card">
       <h3>Backup your store</h3>
-      <p class="muted">Your inventory and receipts live in THIS browser on THIS device.
-      Clearing browser data deletes them. Export a backup weekly.</p>
+      <p class="muted">Your inventory and receipts live in THIS browser on THIS device. Clearing browser data deletes them. Export a backup weekly.</p>
       <div class="btn-row">
         <button class="btn-primary small" data-action="export">Export backup</button>
         <button class="btn-small" data-action="import">Import backup</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" hidden>
-    </div>`;
+    </div>
+
+    <div class="card">
+      <h3>Data Management</h3>
+      <p class="muted">You have <strong>${sales.length}</strong> sales records.</p>
+      <p class="muted">Oldest: ${sales.length ? new Date(sales[sales.length-1].createdAt).toLocaleDateString() : 'N/A'}</p>
+      <button class="btn-small danger" data-action="clear-old-sales" style="margin-top:8px;">
+        Delete Sales Older Than 2 Years
+      </button
+    </div>
+  `;
 
   $('#import-file').onchange = async (e) => {
     if (e.target.files[0]) await importBackup(e.target.files[0]);
@@ -249,7 +280,6 @@ function miniRow(item, note) {
 }
 
 /* ---------------- INVENTORY ---------------- */
-
 async function renderInventory() {
   const items = await getAllItems();
   state.items = items;
@@ -285,7 +315,7 @@ async function renderInventory() {
         </label>
         <label>Price (sell) *<input id="f-price" type="number" min="0" step="0.01" required placeholder="15.00"></label>
         <label>Cost (you pay)<input id="f-cost" type="number" min="0" step="0.01" placeholder="12.00">
-          <small class="muted">Per ${'selling unit'} — not per case.</small>
+          <small class="muted">Per selling unit — not per case.</small>
         </label>
         <label>Stock on hand<input id="f-stock" type="number" min="0" step="1" value="0"></label>
         <label>Low-stock alert at<input id="f-reorder" type="number" min="0" step="1" value="5"></label>
@@ -438,7 +468,6 @@ async function removeItem(id) {
 }
 
 /* ---------------- POS ---------------- */
-
 async function renderPOS() {
   const items = await getAllItems();
   state.items = items;
@@ -586,7 +615,6 @@ function renderCart() {
 }
 
 /* ---------------- CHECKOUT / CHANGE ---------------- */
-
 function openCheckout() {
   if (!state.cart.length) return toast('Add an item to the cart first.', 'error');
   const t = cartTotals();
@@ -651,7 +679,7 @@ async function finishSale() {
       paid, change: paid - t.total
     };
 
-    const id = await completeSale(sale);   // atomic: stock + receipt
+    const id = await completeSale(sale);
     state.cart = []; state.discount = '';
     persistCart();
     closeModal();
@@ -682,7 +710,6 @@ async function refreshCartPrices() {
 }
 
 /* ---------------- RECEIPT + PRINT ---------------- */
-
 function receiptHTML(s) {
   return `<div class="receipt" id="receipt-print">
     <h2>Tindahan POS</h2>
@@ -718,7 +745,6 @@ async function showReceipt(id) {
 }
 
 /* ---------------- BACKUP (offline data safety) ---------------- */
-
 async function exportBackup() {
   const data = {
     app: 'tindahan-pos', version: 2,
@@ -763,4 +789,195 @@ async function importBackup(file) {
     await renderDashboard();
     toast('Backup restored.');
   } catch (err) { toast(err.message, 'error'); }
+}
+
+/* ── MONTHLY REPORTS & EXPORT ── */
+async function renderReports() {
+  const sales = await getAllSales();
+  const today = new Date();
+  const currentMonth = today.getMonth() + 1;
+  const currentYear = today.getFullYear();
+
+  app.innerHTML = `
+    <div class="row-between">
+      <h2>Monthly Reports</h2>
+    </div>
+    
+    <div class="card">
+      <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+        <label>Month
+          <select id="report-month">
+            ${Array.from({length: 12}, (_, i) => {
+              const m = i + 1;
+              return `<option value="${m}" ${m === currentMonth ? 'selected' : ''}>${new Date(0, m - 1).toLocaleString('en-PH', { month: 'long' })}</option>`;
+            }).join('')}
+          </select>
+        </label>
+        <label>Year
+          <select id="report-year">
+            ${[currentYear - 1, currentYear, currentYear + 1].map(y => 
+              `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`
+            ).join('')}
+          </select>
+        </label>
+      </div>
+      <button class="btn-primary" id="generate-report-btn">Generate Report</button>
+    </div>
+
+    <div id="report-results" class="card" hidden>
+      <div class="row-between">
+        <h3 id="report-title">Report</h3>
+        <div class="btn-row">
+          <button class="btn-small" data-action="print-report">🖨️ Print PDF</button>
+          <button class="btn-small" data-action="export-csv">📊 Export Excel (CSV)</button>
+        </div>
+      </div>
+      <div class="stats-grid" style="margin-top: 16px;">
+        <div class="stat"><small>Total Sales</small><strong id="rep-total-sales">₱0.00</strong></div>
+        <div class="stat green"><small>Total Profit</small><strong id="rep-total-profit">₱0.00</strong></div>
+        <div class="stat"><small>Transactions</small><strong id="rep-tx-count">0</strong></div>
+      </div>
+      <div class="table-responsive" style="margin-top: 16px; overflow-x: auto;">
+        <table class="report-table" id="report-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Receipt</th>
+              <th>Items</th>
+              <th>Total</th>
+              <th>Profit</th>
+            </tr>
+          </thead>
+          <tbody id="report-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('generate-report-btn').addEventListener('click', () => {
+    const m = parseInt(document.getElementById('report-month').value);
+    const y = parseInt(document.getElementById('report-year').value);
+    generateReportData(sales, m, y);
+  });
+}
+
+function generateReportData(allSales, month, year) {
+  const filtered = allSales.filter(s => {
+    const d = new Date(s.createdAt);
+    return (d.getMonth() + 1) === month && d.getFullYear() === year;
+  });
+
+  filtered.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  const totalRevenue = filtered.reduce((sum, s) => sum + s.total, 0);
+  const totalProfit = filtered.reduce((sum, s) => sum + (s.profit || 0), 0);
+  const monthName = new Date(year, month - 1).toLocaleString('en-PH', { month: 'long', year: 'numeric' });
+
+  document.getElementById('report-title').textContent = `Report: ${monthName}`;
+  document.getElementById('rep-total-sales').textContent = money(totalRevenue);
+  document.getElementById('rep-total-profit').textContent = money(totalProfit);
+  document.getElementById('rep-tx-count').textContent = filtered.length;
+  document.getElementById('report-results').hidden = false;
+
+  const tbody = document.getElementById('report-tbody');
+  tbody.innerHTML = filtered.map(s => {
+    const date = new Date(s.createdAt).toLocaleDateString('en-PH');
+    const itemsSummary = s.items.map(i => `${i.name} (x${i.qty})`).join(', ');
+    return `
+      <tr>
+        <td>${date}</td>
+        <td>${esc(s.receiptNo)}</td>
+        <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${esc(itemsSummary)}">${esc(itemsSummary)}</td>
+        <td>${money(s.total)}</td>
+        <td class="text-success">${money(s.profit || 0)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  window._currentReportData = { monthName, filtered };
+}
+
+function exportReportToCSV() {
+  if (!window._currentReportData) return;
+  const { monthName, filtered } = window._currentReportData;
+
+  let csv = '\uFEFF'; 
+  csv += `Tindahan POS Monthly Report - ${monthName}\n\n`;
+  csv += 'Date,Receipt No,Items,Subtotal,Discount,Total,Profit,Payment\n';
+
+  filtered.forEach(s => {
+    const date = new Date(s.createdAt).toLocaleDateString('en-PH');
+    const items = s.items.map(i => `${i.name} x${i.qty}`).join('; ');
+    const safeItems = `"${items.replace(/"/g, '""')}"`; 
+    
+    csv += `${date},${s.receiptNo},${safeItems},${s.subtotal/100},${s.discount/100},${s.total/100},${(s.profit||0)/100},${s.payment}\n`;
+  });
+
+  const totalRev = filtered.reduce((sum, s) => sum + s.total, 0) / 100;
+  const totalProf = filtered.reduce((sum, s) => sum + (s.profit || 0), 0) / 100;
+  csv += `\n,,,TOTAL,,${totalRev.toFixed(2)},${totalProf.toFixed(2)},\n`;
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Tindahan_Report_${monthName.replace(' ', '_')}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  toast('Excel (CSV) report downloaded!');
+}
+
+function printReport() {
+  if (!window._currentReportData) return;
+  const { monthName, filtered } = window._currentReportData;
+  
+  const totalRev = filtered.reduce((sum, s) => sum + s.total, 0);
+  const totalProf = filtered.reduce((sum, s) => sum + (s.profit || 0), 0);
+
+  let printDiv = document.getElementById('print-container');
+  if (!printDiv) {
+    printDiv = document.createElement('div');
+    printDiv.id = 'print-container';
+    document.body.appendChild(printDiv);
+  }
+
+  printDiv.innerHTML = `
+    <div class="print-report">
+      <h1>Tindahan POS</h1>
+      <h2>Monthly Sales Report: ${monthName}</h2>
+      <p>Generated: ${new Date().toLocaleString('en-PH')}</p>
+      <hr>
+      <table class="print-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Receipt</th>
+            <th>Items</th>
+            <th>Total</th>
+            <th>Profit</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.map(s => `
+            <tr>
+              <td>${new Date(s.createdAt).toLocaleDateString('en-PH')}</td>
+              <td>${s.receiptNo}</td>
+              <td>${s.items.map(i => `${i.name} (x${i.qty})`).join(', ')}</td>
+              <td>₱${(s.total/100).toFixed(2)}</td>
+              <td>₱${((s.profit||0)/100).toFixed(2)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" style="text-align:right; font-weight:bold;">TOTALS:</td>
+            <td style="font-weight:bold;">₱${(totalRev/100).toFixed(2)}</td>
+            <td style="font-weight:bold;">₱${(totalProf/100).toFixed(2)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+
+  window.print();
 }
