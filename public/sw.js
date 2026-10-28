@@ -1,7 +1,7 @@
 'use strict';
 
 // BUMP THIS on every release so returning devices download the new app
-const CACHE_NAME = 'tindahan-v3';
+const CACHE_NAME = 'tindahan-v4';
 
 const CORE = [
   '/',
@@ -9,7 +9,9 @@ const CORE = [
   '/styles.css',
   '/obfuscated/app.js',
   '/obfuscated/db.js',
-  '/manifest.json'
+  '/obfuscated/license.js',
+  '/manifest.json',
+  'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js' // <-- ADD THIS
 ];
 
 self.addEventListener('install', event => {

@@ -472,12 +472,29 @@ async function renderPOS() {
   const items = await getAllItems();
   state.items = items;
 
-  app.innerHTML = `
-    <h2>Quick Sale</h2>
+    app.innerHTML = `
+    <div class="row-between">
+      <h2>Quick Sale</h2>
+      <button class="btn-small" id="btn-scan-barcode" style="display:flex; align-items:center; gap:6px;">
+        📷 Scan Barcode
+      </button>
+    </div>
     <input id="pos-search" placeholder="Search item or scan SKU..." value="${esc(state.search)}">
     <div id="pos-catalog"></div>
-    <section id="cart-panel" class="cart-panel"></section>`;
-
+    <section id="cart-panel" class="cart-panel"></section>
+    
+    <!-- Scanner Modal Container (Hidden by default) -->
+    <div id="scanner-modal" class="scanner-modal" hidden>
+      <div class="scanner-box">
+        <div class="row-between">
+          <h3>Scan Barcode</h3>
+          <button class="icon-btn" id="close-scanner">✕</button>
+        </div>
+        <div id="reader" style="width: 100%; border-radius: 8px; overflow: hidden; margin-top: 10px;"></div>
+        <p class="muted text-center" style="margin-top: 10px;">Point camera at the product barcode</p>
+      </div>
+    </div>
+  `;
   $('#pos-search').oninput = e => { state.search = e.target.value; renderPOSCatalog(); };
 
   const saved = restoreCart();
@@ -494,6 +511,7 @@ async function renderPOS() {
   persistCart();
   renderPOSCatalog();
   renderCart();
+  setupScanner(); // <-- ADD THIS LINE
 }
 
 function renderPOSCatalog() {
@@ -789,6 +807,97 @@ async function importBackup(file) {
     await renderDashboard();
     toast('Backup restored.');
   } catch (err) { toast(err.message, 'error'); }
+}
+
+/* ── BARCODE SCANNER LOGIC ── */
+let html5QrCode = null;
+let isScanning = false;
+
+function setupScanner() {
+  const scanBtn = document.getElementById('btn-scan-barcode');
+  const closeBtn = document.getElementById('close-scanner');
+  const modal = document.getElementById('scanner-modal');
+
+  if (scanBtn) {
+    scanBtn.addEventListener('click', () => {
+      modal.hidden = false;
+      startScanning();
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      stopScanning();
+      modal.hidden = true;
+    });
+  }
+}
+
+function startScanning() {
+  if (isScanning) return;
+  
+  // Check if library loaded
+  if (typeof Html5Qrcode === 'undefined') {
+    toast('Scanner library not loaded. Check internet and reload.', 'error');
+    return;
+  }
+
+  html5QrCode = new Html5Qrcode("reader");
+  isScanning = true;
+
+  const config = { fps: 10, qrbox: { width: 250, height: 150 }, aspectRatio: 1.0 };
+  
+  // Prefer back camera on mobile
+  html5QrCode.start(
+    { facingMode: "environment" }, 
+    config, 
+    async (decodedText, decodedResult) => {
+      // SUCCESS: Barcode detected!
+      stopScanning();
+      document.getElementById('scanner-modal').hidden = true;
+      await handleScannedBarcode(decodedText);
+    },
+    (errorMessage) => {
+      // Ignore continuous scan errors, this is normal while searching for a code
+    }
+  ).catch((err) => {
+    console.error("Camera error:", err);
+    toast('Camera access denied or not available.', 'error');
+    stopScanning();
+    document.getElementById('scanner-modal').hidden = true;
+  });
+}
+
+function stopScanning() {
+  if (html5QrCode && isScanning) {
+    html5QrCode.stop().then(() => {
+      html5QrCode.clear();
+      isScanning = false;
+    }).catch(err => console.error("Failed to stop scanner", err));
+  }
+}
+
+async function handleScannedBarcode(scannedCode) {
+  // Clean the scanned code (remove any accidental whitespace)
+  const cleanCode = scannedCode.trim();
+  
+  // Find item by SKU/Barcode
+  const items = await getAllItems();
+  const matchedItem = items.find(i => i.sku && i.sku.trim().toLowerCase() === cleanCode.toLowerCase());
+
+  if (matchedItem) {
+    toast(`Found: ${matchedItem.name}`);
+    await addToCart(matchedItem.id);
+  } else {
+    toast(`Item not found for barcode: ${cleanCode}`, 'error');
+    // Optional: Auto-focus the search bar so they can type it manually
+    const searchInput = document.getElementById('pos-search');
+    if (searchInput) {
+      searchInput.value = cleanCode;
+      state.search = cleanCode;
+      renderPOSCatalog();
+    }
+  }
 }
 
 /* ── MONTHLY REPORTS & EXPORT ── */

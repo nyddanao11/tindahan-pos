@@ -202,3 +202,18 @@ dialog::backdrop{background:rgba(15,23,32,.6)}
   /* Force background colors to print (for headers) */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 }
+
+/* ── Barcode Scanner Modal ── */
+.scanner-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  z-index: 9999; display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.scanner-modal[hidden] { display: none !important; }
+
+.scanner-box {
+  background: var(--card); border-radius: 16px; padding: 20px;
+  width: 100%; max-width: 400px; box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+#reader { background: #000; }
+#reader video { border-radius: 8px; width: 100% !important; }
