@@ -205,6 +205,15 @@ async function renderDashboard() {
   const expiring = items.filter(i => { const d = daysLeft(i.expiryDate); return d !== null && d >= 0 && d <= 7; });
   const missingCost = items.filter(i => !Number(i.cost)).length;
 
+   // Add storage check here
+  const storage = await checkStorageUsage();
+  const storageWarning = (storage && storage.percentUsed > 80) 
+    ? `<div class="card attention">
+        <p class="warn-text">⚠️ Storage is ${storage.percentUsed}% full (${storage.usedMB} MB / ${storage.quotaMB} MB)</p>
+        <p class="muted">Consider exporting a backup and clearing old sales.</p>
+       </div>` 
+    : '';
+
   app.innerHTML = `
     <h2>Store Overview</h2>
     <p class="muted">${new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric' })}</p>

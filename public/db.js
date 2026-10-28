@@ -1,7 +1,7 @@
 'use strict';
 
 const DB_NAME = 'TindahanDB';
-const DB_VERSION = 2;
+const DB_VERSION = 3; // Bumped to 3 to add sales_archive
 let db = null;
 
 function initDB() {
@@ -22,6 +22,11 @@ function initDB() {
         const s = d.createObjectStore('sales', { keyPath: 'id', autoIncrement: true });
         s.createIndex('createdAt', 'createdAt');
       }
+      // Properly add sales_archive inside the upgrade block
+      if (!d.objectStoreNames.contains('sales_archive')) {
+        const s = d.createObjectStore('sales_archive', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('createdAt', 'createdAt');
+      }
       if (!d.objectStoreNames.contains('settings')) {
         d.createObjectStore('settings', { keyPath: 'key' });
       }
@@ -37,7 +42,6 @@ function initDB() {
   });
 }
 
-// Resolves only when the transaction COMMITTED (not just when the request returns)
 function done(t, req) {
   return new Promise((resolve, reject) => {
     let result;
@@ -70,12 +74,6 @@ async function deleteItem(id) {
   return done(t);
 }
 
-/*
- ATOMIC CHECKOUT:
- stock reads, price/stock validation, stock deduction and receipt insert
- all happen inside ONE readwrite transaction.
- Any failure aborts everything -> no partial sales, no negative stock.
-*/
 async function completeSale(sale) {
   return new Promise((resolve, reject) => {
     const t = db.transaction(['items', 'sales'], 'readwrite');
@@ -155,7 +153,6 @@ async function replaceAllData(items, sales) {
   return done(t);
 }
 
-// Keep the PWA small: compress every photo to 320px / 72% JPEG
 function compressImage(file, maxWidth = 320) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type.startsWith('image/')) return resolve('');
@@ -178,7 +175,6 @@ function compressImage(file, maxWidth = 320) {
   });
 }
 
-// Add to db.js
 async function archiveOldSales(monthsToKeep = 12) {
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - monthsToKeep);
@@ -209,12 +205,6 @@ async function archiveOldSales(monthsToKeep = 12) {
   });
 }
 
-// Add to objectStore creation in initDB()
-if (!database.objectStoreNames.contains('sales_archive')) {
-  const archiveStore = database.createObjectStore('sales_archive', { keyPath: 'id', autoIncrement: true });
-  archiveStore.createIndex('createdAt', 'createdAt');
-}
-
 async function checkStorageUsage() {
   if (!navigator.storage || !navigator.storage.estimate) return null;
   
@@ -224,14 +214,4 @@ async function checkStorageUsage() {
   const percentUsed = ((estimate.usage / estimate.quota) * 100).toFixed(1);
 
   return { usedMB, quotaMB, percentUsed };
-}
-
-// In renderDashboard()
-const storage = await checkStorageUsage();
-if (storage && storage.percentUsed > 80) {
-  // Show warning
-  <div class="card attention">
-    <p class="warn-text">⚠️ Storage is ${storage.percentUsed}% full (${storage.usedMB} MB / ${storage.quotaMB} MB)</p>
-    <p class="muted">Consider exporting a backup and clearing old sales.</p>
-  </div>
 }
