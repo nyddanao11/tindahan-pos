@@ -262,7 +262,7 @@ async function renderDashboard() {
       <p class="muted">Oldest: ${sales.length ? new Date(sales[sales.length-1].createdAt).toLocaleDateString() : 'N/A'}</p>
       <button class="btn-small danger" data-action="clear-old-sales" style="margin-top:8px;">
         Delete Sales Older Than 2 Years
-      </button
+      </button>
     </div>
   `;
 
