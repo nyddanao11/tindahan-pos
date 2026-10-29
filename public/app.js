@@ -306,7 +306,7 @@ async function renderDashboard() {
 
         <!-- Professional App Footer -->
     <div class="app-footer">
-      Tindahan POS v1.0 • Secure offline technology by <a href="https://yeilvastore.com" target="_blank" class="footer-link">Yeilvastore</a>
+      Tindahan POS v6.0 • Secure offline technology by <a href="https://yeilvastore.com" target="_blank" class="footer-link">Yeilvastore</a>
     </div>
   `;
 
