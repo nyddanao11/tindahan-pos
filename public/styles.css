@@ -274,3 +274,15 @@ dialog::backdrop{background:rgba(15,23,32,.6)}
   opacity: 0.8;
   text-decoration: underline;
 }
+
+/* ── Ledger Styles ── */
+.ledger-customer-row {
+  display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer; transition: background 0.2s;
+}
+.ledger-customer-row:active { background: #F0F3F6; }
+.ledger-info { flex: 1; min-width: 0; }
+.ledger-info strong { display: block; font-size: 15px; overflow-wrap: anywhere; }
+.ledger-balance { font-size: 16px; font-weight: 700; text-align: right; }
+.text-danger { color: var(--danger) !important; }
+.text-success { color: var(--success) !important; }

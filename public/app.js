@@ -197,6 +197,76 @@ document.addEventListener('click', async (e) => {
     case 'import': if ($('#import-file')) $('#import-file').click(); break;
     case 'export-csv': exportReportToCSV(); break;
     case 'print-report': printReport(); break;
+
+      // Global click handler additions for Ledger
+// ADD THESE CASES to your existing switch(a) statement in the global click listener:
+
+    case 'new-customer':
+      modal(`
+        <div class="row-between"><h3>Add New Customer</h3><button class="icon-btn" data-action="close-modal">✕</button></div>
+        <label>Full Name *<input id="lc-name" required placeholder="e.g. Juan Dela Cruz"></label>
+        <label>Phone Number<input id="lc-phone" type="tel" placeholder="09123456789"></label>
+        <label>Address / Notes<input id="lc-notes" placeholder="e.g. Blue house, corner store"></label>
+        <button class="btn-primary" data-action="save-customer">Save Customer</button>
+      `);
+      break;
+      
+    case 'save-customer':
+      const name = $('#lc-name').value.trim();
+      if (!name) { toast('Name is required', 'error'); break; }
+      await saveCustomer({
+        name,
+        phone: $('#lc-phone').value.trim(),
+        address: $('#lc-notes').value.trim(),
+        createdAt: new Date().toISOString()
+      });
+      closeModal();
+      renderLedger();
+      toast('Customer added!');
+      break;
+
+    case 'view-customer':
+      await renderCustomerDetail(id);
+      break;
+
+    case 'back-to-ledger':
+      renderLedger();
+      break;
+
+    case 'delete-customer':
+      if (!confirm('Delete this customer and all their ledger history? This cannot be undone.')) break;
+      await deleteCustomer(id);
+      renderLedger();
+      toast('Customer deleted.');
+      break;
+
+    case 'add-debt':
+    case 'add-payment':
+      const type = a === 'add-debt' ? 'debt' : 'payment';
+      const title = type === 'debt' ? 'Add Utang (Debt)' : 'Add Bayad (Payment)';
+      modal(`
+        <div class="row-between"><h3>${title}</h3><button class="icon-btn" data-action="close-modal">✕</button></div>
+        <label>Amount (₱) *<input id="lt-amount" type="number" min="1" step="0.01" required placeholder="0.00"></label>
+        <label>Description<input id="lt-desc" placeholder="${type === 'debt' ? 'e.g. 2 packs of noodles, 1 coke' : 'e.g. Partial payment, salary'}"></label>
+        <button class="btn-primary" data-action="save-ledger-entry" data-type="${type}" data-id="${id}">Save</button>
+      `);
+      break;
+
+    case 'save-ledger-entry':
+      const amt = parseFloat($('#lt-amount').value);
+      if (!amt || amt <= 0) { toast('Enter a valid amount', 'error'); break; }
+      await addLedgerEntry({
+        customerId: id,
+        type: b.dataset.type,
+        amount: amt,
+        description: $('#lt-desc').value.trim(),
+        createdAt: new Date().toISOString()
+      });
+      closeModal();
+      renderCustomerDetail(id);
+      toast(b.dataset.type === 'debt' ? 'Utang recorded.' : 'Payment recorded!');
+      break;
+
     
     case 'clear-old-sales':
       if (!confirm('This will permanently delete all sales older than 2 years. Export a backup first. Continue?')) return;
@@ -829,12 +899,16 @@ async function showReceipt(id) {
     </div>`);
 }
 
-/* ---------------- BACKUP (offline data safety) ---------------- */
+/* ── BACKUP EXPORT/IMPORT LOGIC ── */
+
 async function exportBackup() {
   const data = {
-    app: 'tindahan-pos', version: 2,
+    app: 'tindahan-pos', version: 4, // Updated version
     exportedAt: new Date().toISOString(),
-    items: await getAllItems(), sales: await getAllSales()
+    items: await getAllItems(), 
+    sales: await getAllSales(),
+    customers: await getAllCustomers(), // NEW
+    ledger: await db.transaction('ledger').objectStore('ledger').getAll() // NEW
   };
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -849,30 +923,18 @@ async function exportBackup() {
 async function importBackup(file) {
   try {
     const data = JSON.parse(await file.text());
-    if (!Array.isArray(data.items)) throw new Error('This is not a Tindahan backup file.');
-    if (!data.items.every(i => typeof i.name === 'string' && Number.isFinite(Number(i.price))))
-      throw new Error('Backup contains invalid items.');
-    if (!confirm('REPLACE all current inventory and sales with this backup?\nExport your current data first if unsure.')) return;
+    if (!Array.isArray(data.items)) throw new Error('Invalid backup file.');
+    if (!confirm('REPLACE all current data with this backup? Export current data first if unsure.')) return;
 
-    const items = data.items.map(i => {
-      const clean = {
-        ...i,
-        price: Number(i.price) || 0, cost: Number(i.cost) || 0,
-        stock: Math.max(0, parseInt(i.stock, 10) || 0),
-        reorderLevel: parseInt(i.reorderLevel, 10) || 5,
-        category: i.category || 'Other', unit: i.unit || 'pcs',
-        expiryDate: i.expiryDate || '',
-        image: typeof i.image === 'string' && i.image.startsWith('data:image/') ? i.image : ''
-      };
-      if (!Number.isInteger(clean.id) || clean.id <= 0) delete clean.id;
-      return clean;
-    });
-
+    const items = data.items.map(i => ({ ...i, price: Number(i.price)||0, cost: Number(i.cost)||0, stock: Math.max(0, parseInt(i.stock,10)||0) }));
     const sales = Array.isArray(data.sales) ? data.sales.filter(s => s && Array.isArray(s.items)) : [];
-    await replaceAllData(items, sales);
+    const customers = Array.isArray(data.customers) ? data.customers : []; // NEW
+    const ledger = Array.isArray(data.ledger) ? data.ledger : []; // NEW
+    
+    await replaceAllData(items, sales, customers, ledger);
     state.cart = []; state.discount = ''; persistCart();
     await renderDashboard();
-    toast('Backup restored.');
+    toast('Backup restored successfully.');
   } catch (err) { toast(err.message, 'error'); }
 }
 
@@ -965,6 +1027,97 @@ async function handleScannedBarcode(scannedCode) {
       renderPOSCatalog();
     }
   }
+}
+
+/* ── LEDGER / PAUTANG SYSTEM ── */
+async function renderLedger() {
+  const customers = await getAllCustomers();
+  
+  app.innerHTML = `
+    <div class="row-between">
+      <h2>Customer Ledger</h2>
+      <button class="btn-primary small" data-action="new-customer">＋ Add Customer</button>
+    </div>
+    <input id="ledger-search" placeholder="Search customer name..." style="margin-bottom: 12px;">
+    <div id="ledger-list"></div>
+  `;
+
+  $('#ledger-search').oninput = (e) => renderLedgerList(customers, e.target.value.trim().toLowerCase());
+  renderLedgerList(customers, '');
+}
+
+async function renderLedgerList(customers, query) {
+  const filtered = customers.filter(c => !query || c.name.toLowerCase().includes(query));
+  const listEl = $('#ledger-list');
+  
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="card empty">No customers found. Tap "＋ Add Customer" to start tracking pautang.</div>`;
+    return;
+  }
+
+  // Calculate balance for each customer
+  const listWithBalance = await Promise.all(filtered.map(async (c) => {
+    const transactions = await getCustomerLedger(c.id);
+    const balance = transactions.reduce((sum, t) => {
+      return t.type === 'debt' ? sum + t.amount : sum - t.amount;
+    }, 0);
+    return { ...c, balance };
+  }));
+
+  listEl.innerHTML = listWithBalance.map(c => `
+    <div class="card ledger-customer-row" data-action="view-customer" data-id="${c.id}">
+      <div class="ledger-info">
+        <strong>${esc(c.name)}</strong>
+        <small class="muted">${c.phone ? '📞 ' + esc(c.phone) : 'No phone'}</small>
+      </div>
+      <div class="ledger-balance ${c.balance > 0 ? 'text-danger' : 'text-success'}">
+        ${c.balance > 0 ? 'Utang: ' + money(c.balance * 100) : 'Settled'}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function renderCustomerDetail(customerId) {
+  const customer = await getAllCustomers().then(c => c.find(x => x.id === customerId));
+  if (!customer) return renderLedger();
+  
+  const transactions = await getCustomerLedger(customerId);
+  const balance = transactions.reduce((sum, t) => t.type === 'debt' ? sum + t.amount : sum - t.amount, 0);
+
+  app.innerHTML = `
+    <div class="row-between">
+      <button class="btn-small" data-action="back-to-ledger">← Back</button>
+      <button class="btn-small danger" data-action="delete-customer" data-id="${customer.id}">Delete</button>
+    </div>
+    
+    <div class="card" style="text-align:center; margin-top:12px;">
+      <h2 style="margin:0;">${esc(customer.name)}</h2>
+      <p class="muted">${customer.phone ? '📞 ' + esc(customer.phone) : ''} ${customer.address ? '· 📍 ' + esc(customer.address) : ''}</p>
+      <h1 class="${balance > 0 ? 'text-danger' : 'text-success'}" style="font-size:32px; margin:10px 0;">
+        ${balance > 0 ? 'Total Utang: ' + money(balance * 100) : 'Balanced (₱0.00)'}
+      </h1>
+      <div class="btn-row" style="justify-content:center; margin-top:16px;">
+        <button class="btn-primary small" data-action="add-debt" data-id="${customer.id}">＋ Add Utang</button>
+        <button class="btn-small" style="background:#E8F8F0; color:#1E8E5A;" data-action="add-payment" data-id="${customer.id}">💵 Add Bayad</button>
+        ${customer.phone ? `<a href="sms:${customer.phone}?body=Hi ${esc(customer.name)}, reminder lang po na may natitirang utang na ${money(balance * 100)} sa tindahan. Salamat!" class="btn-small" style="text-decoration:none; display:inline-flex; align-items:center;">📩 SMS Reminder</a>` : ''}
+      </div>
+    </div>
+
+    <h3 style="margin-top:20px;">Transaction History</h3>
+    <div id="ledger-history">
+      ${transactions.length ? transactions.map(t => `
+        <div class="card" style="padding:12px; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong>${t.type === 'debt' ? '🛒 Utang' : '💵 Bayad'}</strong>
+            <small class="muted" style="display:block;">${esc(t.description || 'No details')} · ${new Date(t.createdAt).toLocaleDateString('en-PH')}</small>
+          </div>
+          <strong class="${t.type === 'debt' ? 'text-danger' : 'text-success'}">
+            ${t.type === 'debt' ? '+' : '-'}${money(t.amount * 100)}
+          </strong>
+        </div>
+      `).join('') : '<p class="muted text-center">No transactions yet.</p>'}
+    </div>
+  `;
 }
 
 /* ── MONTHLY REPORTS & EXPORT ── */
