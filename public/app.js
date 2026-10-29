@@ -118,13 +118,14 @@ function setupNav() {
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       
-      // 🔥 THIS IS THE MISSING LINE! It tells the app which tab you are currently on.
+      // Update the state so the app knows which tab is active
       state.view = btn.dataset.view; 
       
       const view = btn.dataset.view;
       if (view === 'dashboard') renderDashboard();
       if (view === 'pos') renderPOS();
       if (view === 'inventory') renderInventory();
+      if (view === 'ledger') renderLedger();       // <-- MUST BE HERE
       if (view === 'reports') renderReports(); 
     });
   });
