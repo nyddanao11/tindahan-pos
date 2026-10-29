@@ -1,7 +1,7 @@
 'use strict';
 
 // BUMP THIS on every release so returning devices download the new app
-const CACHE_NAME = 'tindahan-v5';
+const CACHE_NAME = 'tindahan-v6';
 
 const CORE = [
   '/',
