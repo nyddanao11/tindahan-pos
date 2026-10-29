@@ -169,13 +169,33 @@ async function saveCustomer(customer) {
 }
 
 async function deleteCustomer(id) {
-  const t = db.transaction('customers', 'readwrite');
-  t.objectStore('customers').delete(Number(id));
-  // Also delete their ledger entries
-  const lt = db.transaction('ledger', 'readwrite');
-  const allLedger = await done(lt, lt.objectStore('ledger').getAll());
-  allLedger.filter(l => l.customerId === id).forEach(l => lt.objectStore('ledger').delete(l.id));
-  return done(t);
+  // 1. First, find all ledger entries for this customer (readonly is safe and fast)
+  const tRead = db.transaction('ledger', 'readonly');
+  const allLedger = await new Promise((resolve, reject) => {
+    const req = tRead.objectStore('ledger').getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  
+  const ledgerIdsToDelete = allLedger.filter(l => l.customerId === id).map(l => l.id);
+
+  // 2. Open a SINGLE readwrite transaction for BOTH stores
+  const tWrite = db.transaction(['customers', 'ledger'], 'readwrite');
+  
+  // Delete the customer
+  tWrite.objectStore('customers').delete(Number(id));
+  
+  // Delete their associated ledger entries
+  ledgerIdsToDelete.forEach(lId => {
+    tWrite.objectStore('ledger').delete(lId);
+  });
+
+  // 3. Wait for the combined transaction to safely complete
+  return new Promise((resolve, reject) => {
+    tWrite.oncomplete = () => resolve();
+    tWrite.onerror = () => reject(tWrite.error);
+    tWrite.onabort = () => reject(tWrite.error || new Error('Transaction aborted'));
+  });
 }
 
 async function getCustomerLedger(customerId) {
