@@ -160,7 +160,17 @@ document.addEventListener('click', async (e) => {
       break;
 
     case 'complete-sale': await finishSale(); break;
-    case 'close-modal': closeModal(); break;
+     case 'close-modal': 
+      closeModal(); 
+      // If we are on the POS screen, ensure the cart is wiped and UI is fresh
+      if (state.view === 'pos') {
+        state.cart = [];
+        state.discount = '';
+        persistCart();
+        renderCart();
+        renderPOSCatalog();
+      }
+      break;
     case 'print': window.print(); break;
     case 'view-sale': await showReceipt(id); break;
     case 'export': await exportBackup(); break;
@@ -316,9 +326,13 @@ async function renderInventory() {
       <div class="form-grid">
         <label>Item name *<input id="f-name" required maxlength="80" placeholder="e.g. Piattos Barbecue"></label>
         <label>SKU / Barcode<input id="f-sku" maxlength="40" placeholder="Optional"></label>
-        <label>Category<input id="f-category" list="category-list" placeholder="Snacks">
-          <datalist id="category-list">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+                <label>Category
+          <select id="f-category">
+            ${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+            <option value="Other">Other (Type manually)</option>
+          </select>
         </label>
+
         <label>Selling unit
           <select id="f-unit">${['pcs', 'pack', 'box', 'kg', 'liter', 'can'].map(u => `<option>${u}</option>`).join('')}</select>
         </label>
