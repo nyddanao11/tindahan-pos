@@ -43,15 +43,41 @@ function toast(msg, type = 'info') {
   el._t = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
+// function modal(html) {
+//   let d = $('#app-modal');
+//   if (!d) { d = document.createElement('dialog'); d.id = 'app-modal'; document.body.appendChild(d); }
+//   d.innerHTML = html;
+//   if (!d.open) d.showModal();
+//   d.onclick = e => { if (e.target === d) d.close(); };
+//   return d;
+// }
+// function closeModal() { const d = $('#app-modal'); if (d && d.open) d.close(); }
+
 function modal(html) {
   let d = $('#app-modal');
   if (!d) { d = document.createElement('dialog'); d.id = 'app-modal'; document.body.appendChild(d); }
   d.innerHTML = html;
   if (!d.open) d.showModal();
-  d.onclick = e => { if (e.target === d) d.close(); };
+  // Fix: Ensure backdrop clicks also trigger our custom closeModal function
+  d.onclick = e => { if (e.target === d) closeModal(); };
   return d;
 }
-function closeModal() { const d = $('#app-modal'); if (d && d.open) d.close(); }
+
+function closeModal() { 
+  const d = $('#app-modal'); 
+  if (d && d.open) {
+    d.close();
+    
+    // AGGRESSIVELY clear cart when closing modal from the POS screen
+    if (state.view === 'pos') {
+      state.cart = [];
+      state.discount = '';
+      persistCart();
+      renderCart();
+      renderPOSCatalog();
+    }
+  }
+}
 
 function safeImg(item) {
   return item.image && item.image.startsWith('data:image/') ? item.image : '';
@@ -283,7 +309,13 @@ async function renderDashboard() {
         Delete Sales Older Than 2 Years
       </button>
     </div>
+
+        <!-- Professional App Footer -->
+    <div class="app-footer">
+      Tindahan POS v1.0 • Secure offline technology by <a href="https://yeilvastore.com" target="_blank" class="footer-link">Yeilvastore</a>
+    </div>
   `;
+
 
   $('#import-file').onchange = async (e) => {
     if (e.target.files[0]) await importBackup(e.target.files[0]);
@@ -326,11 +358,12 @@ async function renderInventory() {
       <div class="form-grid">
         <label>Item name *<input id="f-name" required maxlength="80" placeholder="e.g. Piattos Barbecue"></label>
         <label>SKU / Barcode<input id="f-sku" maxlength="40" placeholder="Optional"></label>
-                <label>Category
-          <select id="f-category">
+                   <label>Category
+          <select id="f-category-select" style="margin-bottom: 5px;">
             ${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
-            <option value="Other">Other (Type manually)</option>
+            <option value="__custom__">✏️ Other (Type custom below)</option>
           </select>
+          <input type="text" id="f-category-custom" placeholder="Enter custom category name..." hidden>
         </label>
 
         <label>Selling unit
@@ -359,6 +392,17 @@ async function renderInventory() {
   $('#inv-search').oninput = e => { state.invSearch = e.target.value; renderInventoryList(); };
   $('#inv-category').onchange = e => { state.invCategory = e.target.value; renderInventoryList(); };
   $('#f-image').onchange = handleImageUpload;
+    // Handle custom category toggle
+  $('#f-category-select').onchange = (e) => {
+    const customInput = $('#f-category-custom');
+    if (e.target.value === '__custom__') {
+      customInput.hidden = false;
+      customInput.focus();
+    } else {
+      customInput.hidden = true;
+      customInput.value = '';
+    }
+  };
 
   $('#item-form').onsubmit = async (e) => {
     e.preventDefault();
@@ -457,7 +501,13 @@ async function saveItemFromForm() {
     const existing = state.editingId ? await getItem(state.editingId) : null;
     const item = {
       name, sku,
-      category: $('#f-category').value.trim() || 'Other',
+     category: (() => {
+        const selectVal = $('#f-category-select').value;
+        const customVal = $('#f-category-custom')?.value.trim();
+        if (selectVal === '__custom__' && customVal) return customVal;
+        if (selectVal === '__custom__') return 'Other';
+        return selectVal || 'Other';
+      })(),
       unit: $('#f-unit').value,
       price, cost, stock,
       reorderLevel: parseInt($('#f-reorder').value, 10) || 5,
