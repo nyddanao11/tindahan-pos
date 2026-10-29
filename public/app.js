@@ -43,16 +43,6 @@ function toast(msg, type = 'info') {
   el._t = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
-// function modal(html) {
-//   let d = $('#app-modal');
-//   if (!d) { d = document.createElement('dialog'); d.id = 'app-modal'; document.body.appendChild(d); }
-//   d.innerHTML = html;
-//   if (!d.open) d.showModal();
-//   d.onclick = e => { if (e.target === d) d.close(); };
-//   return d;
-// }
-// function closeModal() { const d = $('#app-modal'); if (d && d.open) d.close(); }
-
 function modal(html) {
   let d = $('#app-modal');
   if (!d) { d = document.createElement('dialog'); d.id = 'app-modal'; document.body.appendChild(d); }
@@ -127,11 +117,15 @@ function setupNav() {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+      
+      // 🔥 THIS IS THE MISSING LINE! It tells the app which tab you are currently on.
+      state.view = btn.dataset.view; 
+      
       const view = btn.dataset.view;
       if (view === 'dashboard') renderDashboard();
       if (view === 'pos') renderPOS();
       if (view === 'inventory') renderInventory();
-      if (view === 'reports') renderReports();
+      if (view === 'reports') renderReports(); 
     });
   });
 }
