@@ -199,6 +199,42 @@ document.addEventListener('click', async (e) => {
     case 'export-csv': exportReportToCSV(); break;
     case 'print-report': printReport(); break;
 
+    case 'select-payment':
+      switchPaymentMethod(b.dataset.method);
+      break;
+
+    case 'quick-add-customer':
+      modal(`
+        <div class="row-between"><h3>Quick Add Customer</h3><button class="icon-btn" data-action="close-modal">✕</button></div>
+        <label>Full Name *<input id="qac-name" required placeholder="e.g. Juan Dela Cruz"></label>
+        <label>Phone Number<input id="qac-phone" type="tel" placeholder="09123456789"></label>
+        <label>Address / Notes<input id="qac-notes" placeholder="Optional"></label>
+        <button class="btn-primary" data-action="save-quick-customer">Save & Select</button>
+      `);
+      break;
+
+    case 'save-quick-customer':
+      const qName = $('#qac-name').value.trim();
+      if (!qName) { toast('Name is required', 'error'); break; }
+      const newCust = await saveCustomer({
+        name: qName,
+        phone: $('#qac-phone').value.trim(),
+        address: $('#qac-notes').value.trim(),
+        createdAt: new Date().toISOString()
+      });
+      closeModal();
+      // Reopen checkout and auto-select the new customer
+      openCheckout();
+      setTimeout(() => {
+        const select = $('#utang-customer');
+        if (select) {
+          select.value = newCust;
+          select.dispatchEvent(new Event('change'));
+        }
+      }, 100);
+      toast('Customer added and selected!');
+      break;
+
       // Global click handler additions for Ledger
 // ADD THESE CASES to your existing switch(a) statement in the global click listener:
 
@@ -813,23 +849,129 @@ function openCheckout() {
   modal(`
     <div class="row-between"><h3>Payment</h3>
       <button class="icon-btn no-print" data-action="close-modal">✕</button></div>
+    
     <p class="muted">Amount due</p>
     <h2 class="due">${money(t.total)}</h2>
 
-    <label>Cash received<input id="cash-received" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></label>
+    <!-- Optional Customer Name -->
+    <label>Customer Name (optional)<input id="customer-name" type="text" placeholder="e.g. Juan Dela Cruz — for receipt"></label>
 
-    <div class="quick-cash">
-      ${[20, 50, 100, 200, 500, 1000].map(v => `<button data-action="cash" data-value="${v}">₱${v}</button>`).join('')}
-      <button data-action="cash" data-value="exact">Exact</button>
+    <!-- Payment Method Selector -->
+    <label>Payment Method</label>
+    <div class="payment-methods">
+      <button class="pay-method active" data-method="cash" data-action="select-payment">💵 Cash</button>
+      <button class="pay-method" data-method="ewallet" data-action="select-payment">📱 E-Wallet</button>
+      <button class="pay-method" data-method="utang" data-action="select-payment">📒 Utang</button>
     </div>
 
-    <div class="change-box">Change: <strong id="change-amount">${money(0)}</strong></div>
+    <!-- Cash Section (Default) -->
+    <div id="cash-section">
+      <label>Cash received<input id="cash-received" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></label>
+      <div class="quick-cash">
+        ${[20, 50, 100, 200, 500, 1000].map(v => `<button data-action="cash" data-value="${v}">₱${v}</button>`).join('')}
+        <button data-action="cash" data-value="exact">Exact</button>
+      </div>
+      <div class="change-box">Change: <strong id="change-amount">${money(0)}</strong></div>
+    </div>
+
+    <!-- E-Wallet Section (Hidden by default) -->
+    <div id="ewallet-section" hidden>
+      <label>E-Wallet Provider
+        <select id="ewallet-provider">
+          <option value="GCash">GCash</option>
+          <option value="Maya">Maya</option>
+          <option value="GrabPay">GrabPay</option>
+          <option value="PayMaya">PayMaya</option>
+          <option value="Other E-Wallet">Other</option>
+        </select>
+      </label>
+      <label>Reference Number (optional)<input id="ewallet-ref" type="text" placeholder="e.g. 123456789"></label>
+      <p class="muted" style="text-align:center; padding:10px; background:#E8F8F0; border-radius:8px;">✓ Confirm payment received from customer</p>
+    </div>
+
+    <!-- Utang Section (Hidden by default) -->
+    <div id="utang-section" hidden>
+      <label>Select Customer *</label>
+      <select id="utang-customer">
+        <option value="">— Choose existing customer —</option>
+      </select>
+      <button class="btn-small" data-action="quick-add-customer" style="width:100%; margin-bottom:10px;">＋ Add new customer now</button>
+      <label>Due Date<input id="utang-due" type="date"></label>
+      <label>Notes<input id="utang-notes" placeholder="e.g. Bayad sa sweldo"></label>
+    </div>
+
     <p class="muted" id="cash-hint">Enter cash received to enable the sale.</p>
     <button class="btn-primary" id="confirm-sale" data-action="complete-sale" disabled>Complete sale</button>
   `);
 
-  $('#cash-received').oninput = updateChangeUI;
+  // Load customers into utang dropdown
+  loadUtangCustomers();
+
+  // Set default date to 30 days from now
+  const defaultDue = new Date();
+  defaultDue.setDate(defaultDue.getDate() + 30);
+  const dueInput = document.getElementById('utang-due');
+  if (dueInput) dueInput.value = defaultDue.toISOString().split('T')[0];
+
+  // Enable cash input listener
+  const cashInput = $('#cash-received');
+  if (cashInput) cashInput.oninput = updateChangeUI;
+  
+  // Auto-enable for cash when exact amount entered
+  updateChangeUI();
+  
   setTimeout(() => $('#cash-received')?.focus(), 100);
+}
+
+async function loadUtangCustomers() {
+  const customers = await getAllCustomers();
+  const select = $('#utang-customer');
+  if (!select) return;
+  
+  customers.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = `${c.name}${c.phone ? ' · ' + c.phone : ''}`;
+    select.appendChild(opt);
+  });
+}
+
+function switchPaymentMethod(method) {
+  // Update button styles
+  document.querySelectorAll('.pay-method').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.method === method);
+  });
+
+  // Show/hide sections
+  $('#cash-section').hidden = method !== 'cash';
+  $('#ewallet-section').hidden = method !== 'ewallet';
+  $('#utang-section').hidden = method !== 'utang';
+
+  // Update confirm button state
+  const btn = $('#confirm-sale');
+  const hint = $('#cash-hint');
+  
+  if (method === 'cash') {
+    updateChangeUI();
+    if (hint) hint.textContent = 'Enter cash received to enable the sale.';
+  } else if (method === 'ewallet') {
+    btn.disabled = false;
+    if (hint) hint.textContent = 'Confirm e-wallet payment received.';
+  } else if (method === 'utang') {
+    const hasCustomer = $('#utang-customer').value !== '';
+    btn.disabled = !hasCustomer;
+    if (hint) hint.textContent = hasCustomer 
+      ? 'This sale will be recorded as utang (credit).' 
+      : 'Select a customer to record utang.';
+    
+    // Add listener for customer selection
+    $('#utang-customer').onchange = () => {
+      btn.disabled = $('#utang-customer').value === '';
+      if (hint) hint.textContent = $('#utang-customer').value 
+        ? 'This sale will be recorded as utang (credit).' 
+        : 'Select a customer to record utang.';
+    };
+  }
 }
 
 function updateChangeUI() {
@@ -845,12 +987,36 @@ function updateChangeUI() {
 
 async function finishSale() {
   if (state.saving || !state.cart.length) return;
-  const paidInput = $('#cash-received');
-  if (!paidInput) return;
+
+  // Determine payment method
+  const activeMethod = document.querySelector('.pay-method.active');
+  const method = activeMethod ? activeMethod.dataset.method : 'cash';
 
   const t = cartTotals();
-  const paid = toCents(paidInput.value);
-  if (paid < t.total) return toast('Insufficient cash received.', 'error');
+  const customerName = $('#customer-name')?.value.trim() || '';
+
+  let paid = 0, change = 0, ewalletProvider = '', ewalletRef = '';
+  let customerId = null, dueDate = null, utangNotes = '';
+
+  if (method === 'cash') {
+    const paidInput = $('#cash-received');
+    if (!paidInput) return;
+    paid = toCents(paidInput.value);
+    if (paid < t.total) return toast('Insufficient cash received.', 'error');
+    change = paid - t.total;
+  } else if (method === 'ewallet') {
+    paid = t.total;
+    change = 0;
+    ewalletProvider = $('#ewallet-provider')?.value || 'E-Wallet';
+    ewalletRef = $('#ewallet-ref')?.value.trim() || '';
+  } else if (method === 'utang') {
+    customerId = Number($('#utang-customer').value);
+    if (!customerId) return toast('Please select a customer for utang.', 'error');
+    paid = 0; // No cash paid
+    change = 0;
+    dueDate = $('#utang-due')?.value || '';
+    utangNotes = $('#utang-notes')?.value.trim() || '';
+  }
 
   state.saving = true;
   const btn = $('#confirm-sale');
@@ -860,28 +1026,49 @@ async function finishSale() {
     const sale = {
       receiptNo: 'TND-' + Date.now().toString(36).toUpperCase(),
       createdAt: new Date().toISOString(),
-      payment: 'cash', status: 'completed',
+      paymentMethod: method,
+      payment: method, // backward compatibility
+      customerName,
+      customerId,
+      ewalletProvider,
+      ewalletRef,
+      dueDate,
+      utangNotes,
+      status: method === 'utang' ? 'utang' : 'completed',
       items: state.cart.map(l => ({
         itemId: l.itemId, name: l.name, qty: l.qty,
         unitPrice: l.unitCents, unitCost: l.costCents,
         lineTotal: l.unitCents * l.qty, expiryDate: l.expiryDate || null
       })),
       subtotal: t.subtotal, discount: t.discount, total: t.total,
-      paid, change: paid - t.total
+      paid, change
     };
 
-    const id = await completeSale(sale);
+    const saleId = await completeSale(sale);
+
+    // If utang, automatically create a ledger entry
+    if (method === 'utang' && customerId) {
+      await addLedgerEntry({
+        customerId,
+        type: 'debt',
+        amount: t.total / 100, // Convert cents to pesos
+        description: `Purchase ${sale.receiptNo}${utangNotes ? ' — ' + utangNotes : ''}${dueDate ? ' · Due: ' + dueDate : ''}`,
+        saleId: saleId,
+        createdAt: new Date().toISOString()
+      });
+    }
+
     state.cart = []; state.discount = '';
     persistCart();
     closeModal();
-    await showReceipt(id);
+    await showReceipt(saleId);
     if (state.view === 'pos') { renderPOSCatalog(); renderCart(); }
-    toast('Sale saved. Stock updated.');
+    toast(method === 'utang' ? 'Utang recorded in ledger.' : 'Sale saved. Stock updated.');
   } catch (err) {
     toast(err.message, 'error');
     await refreshCartPrices();
     if ($('#confirm-sale')) { $('#confirm-sale').disabled = false; $('#confirm-sale').textContent = 'Complete sale'; }
-    updateChangeUI();
+    if (method === 'cash') updateChangeUI();
   } finally {
     state.saving = false;
   }
@@ -902,10 +1089,16 @@ async function refreshCartPrices() {
 
 /* ---------------- RECEIPT + PRINT ---------------- */
 function receiptHTML(s) {
+  const method = s.paymentMethod || s.payment || 'cash';
+  const methodLabel = method === 'cash' ? '💵 Cash' 
+    : method === 'ewallet' ? `📱 ${s.ewalletProvider || 'E-Wallet'}` 
+    : '📒 Utang (Credit)';
+
   return `<div class="receipt" id="receipt-print">
     <h2>Tindahan POS</h2>
     <p class="muted">${esc(s.receiptNo)}</p>
     <p class="muted">${new Date(s.createdAt).toLocaleString()}</p>
+    ${s.customerName ? `<p style="text-align:center; font-weight:600; margin-top:8px;">Customer: ${esc(s.customerName)}</p>` : ''}
     <hr>
     ${s.items.map(l => `<div class="receipt-row">
       <span>${esc(l.name)}<br><small>${l.qty} × ${money(l.unitPrice)}</small></span>
@@ -914,8 +1107,20 @@ function receiptHTML(s) {
     <div class="receipt-row"><span>Subtotal</span><b>${money(s.subtotal)}</b></div>
     ${s.discount ? `<div class="receipt-row"><span>Discount</span><b>−${money(s.discount)}</b></div>` : ''}
     <div class="receipt-row total"><span>TOTAL</span><b>${money(s.total)}</b></div>
-    <div class="receipt-row"><span>Cash</span><b>${money(s.paid)}</b></div>
-    <div class="receipt-row"><span>Change</span><b>${money(s.change)}</b></div>
+    
+    ${method === 'utang' ? `
+      <div class="receipt-row" style="background:#FFF4E0; padding:8px; border-radius:6px; margin-top:6px;">
+        <span><strong>📒 UTANG</strong></span>
+        <strong>Balance: ${money(s.total)}</strong>
+      </div>
+      ${s.dueDate ? `<p class="muted" style="text-align:center; margin-top:6px;">Due: ${esc(s.dueDate)}</p>` : ''}
+    ` : method === 'ewallet' ? `
+      <div class="receipt-row"><span>Payment</span><b>${esc(methodLabel)}</b></div>
+      ${s.ewalletRef ? `<div class="receipt-row"><span>Ref #</span><b>${esc(s.ewalletRef)}</b></div>` : ''}
+    ` : `
+      <div class="receipt-row"><span>Cash</span><b>${money(s.paid)}</b></div>
+      <div class="receipt-row"><span>Change</span><b>${money(s.change)}</b></div>
+    `}
     
     <br>
     <p class="muted" style="text-align:center; font-weight:600;">Salamat! Uwi nang masaya. 🧡</p>

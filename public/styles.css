@@ -67,8 +67,23 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .form-grid label{font-size:12px}
 .preview{width:90px;height:90px;object-fit:cover;border-radius:10px;margin-bottom:12px}
 .item-row{display:grid;grid-template-columns:48px 1fr;gap:12px}
-.thumb{object-fit:cover;border-radius:8px;flex:none;background:#F0F3F6}
-.thumb.fallback{display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#8795A3;background:#EAF0F5}
+.thumb{
+  object-fit: contain; /* Changed from 'cover' to show full image */
+  border-radius: 8px;
+  flex: none;
+  background: #F7F9FB; /* Light background so white products are visible */
+  padding: 4px;
+}
+.thumb.fallback{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:22px;
+  font-weight:700;
+  color:#8795A3;
+  background:#EAF0F5;
+  padding: 0;
+}
 .item-info{min-width:0}
 .item-info>strong{display:block;font-size:15px;overflow-wrap:anywhere}
 .price-line{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin:6px 0}
@@ -302,3 +317,33 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .ledger-balance { font-size: 16px; font-weight: 700; text-align: right; }
 .text-danger { color: var(--danger) !important; }
 .text-success { color: var(--success) !important; }
+
+/* ── Payment Method Chips ── */
+.payment-methods {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.pay-method {
+  padding: 14px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #EDF1F5;
+  color: var(--text);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  transition: all 0.2s;
+}
+
+.pay-method.active {
+  background: #FFF4E0;
+  color: var(--accent);
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.pay-method:active {
+  transform: scale(0.97);
+}
