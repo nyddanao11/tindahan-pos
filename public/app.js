@@ -277,6 +277,41 @@ document.addEventListener('click', async (e) => {
       const oldSales = allSales.filter(s => new Date(s.createdAt) < cutoff);
       
       if (!oldSales.length) { toast('No old sales to delete.'); break; }
+
+          case 'edit-customer':
+      // Fetch fresh customer data to prefill the modal
+      const allCusts = await getAllCustomers();
+      const custToEdit = allCusts.find(c => c.id === id);
+      if (!custToEdit) break;
+      
+      modal(`
+        <div class="row-between"><h3>Edit Customer Profile</h3><button class="icon-btn" data-action="close-modal">✕</button></div>
+        <label>Full Name *<input id="lec-name" required value="${esc(custToEdit.name)}"></label>
+        <label>Phone Number<input id="lec-phone" type="tel" value="${esc(custToEdit.phone || '')}"></label>
+        <label>Address / Notes<input id="lec-notes" value="${esc(custToEdit.address || '')}"></label>
+        <button class="btn-primary" data-action="save-customer-edit" data-id="${custToEdit.id}">Update Customer</button>
+      `);
+      break;
+
+    case 'save-customer-edit':
+      const editName = $('#lec-name').value.trim();
+      if (!editName) { toast('Name is required', 'error'); break; }
+      
+      // Find original creation date to preserve it
+      const originalCust = (await getAllCustomers()).find(c => c.id === Number(b.dataset.id));
+      
+      await saveCustomer({
+        id: Number(b.dataset.id), // Passing the ID tells saveCustomer to UPDATE, not create new
+        name: editName,
+        phone: $('#lec-phone').value.trim(),
+        address: $('#lec-notes').value.trim(),
+        createdAt: originalCust ? originalCust.createdAt : new Date().toISOString()
+      });
+      
+      closeModal();
+      renderCustomerDetail(Number(b.dataset.id)); // Refresh the screen with new data
+      toast('Customer profile updated!');
+      break;
       
       // Note: 'db' is globally available from db.js
       const t = db.transaction('sales', 'readwrite');
@@ -881,8 +916,13 @@ function receiptHTML(s) {
     <div class="receipt-row total"><span>TOTAL</span><b>${money(s.total)}</b></div>
     <div class="receipt-row"><span>Cash</span><b>${money(s.paid)}</b></div>
     <div class="receipt-row"><span>Change</span><b>${money(s.change)}</b></div>
-    <p class="store-only muted">Store copy — gross profit: ${money(s.profit || 0)}</p>
-    <p class="muted">Salamat! Uwi nang masaya. 🧡</p>
+    
+    <br>
+    <p class="muted" style="text-align:center; font-weight:600;">Salamat! Uwi nang masaya. 🧡</p>
+    
+    <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 8px; text-align: center;">
+      <p style="font-size: 9px; color: #999; margin: 0;">Secure POS Technology by Yeilvastore</p>
+    </div>
   </div>`;
 }
 
@@ -1097,10 +1137,11 @@ async function renderCustomerDetail(customerId) {
       <h1 class="${balance > 0 ? 'text-danger' : 'text-success'}" style="font-size:32px; margin:10px 0;">
         ${balance > 0 ? 'Total Utang: ' + money(balance * 100) : 'Balanced (₱0.00)'}
       </h1>
-      <div class="btn-row" style="justify-content:center; margin-top:16px;">
+      <div class="btn-row" style="justify-content:center; margin-top:16px; flex-wrap: wrap; gap: 8px;">
+        <button class="btn-small" data-action="edit-customer" data-id="${customer.id}">✏️ Edit Profile</button>
         <button class="btn-primary small" data-action="add-debt" data-id="${customer.id}">＋ Add Utang</button>
         <button class="btn-small" style="background:#E8F8F0; color:#1E8E5A;" data-action="add-payment" data-id="${customer.id}">💵 Add Bayad</button>
-        ${customer.phone ? `<a href="sms:${customer.phone}?body=Hi ${esc(customer.name)}, reminder lang po na may natitirang utang na ${money(balance * 100)} sa tindahan. Salamat!" class="btn-small" style="text-decoration:none; display:inline-flex; align-items:center;">📩 SMS Reminder</a>` : ''}
+        ${customer.phone ? `<a href="sms:${customer.phone}?body=Hi ${esc(customer.name)}, reminder lang po na may natitirang utang na ${money(balance * 100)} sa tindahan. Salamat!" class="btn-small" style="text-decoration:none; display:inline-flex; align-items:center;">📩 SMS</a>` : ''}
       </div>
     </div>
 
