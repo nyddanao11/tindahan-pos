@@ -102,21 +102,37 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .total-line{display:flex;justify-content:space-between;padding:5px 0;font-size:14px}
 .total-line.grand{font-size:20px;font-weight:800;border-top:1px solid #E4E9EE;margin-top:6px;padding-top:10px}
 
-/* Modal / payment / receipt */
-dialog{border:0;border-radius:16px;padding:20px;width:calc(100% - 32px);max-width:420px;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
-dialog::backdrop{background:rgba(15,23,32,.6)}
-.due{font-size:36px;color:var(--accent);margin:4px 0 16px;letter-spacing:-1px}
-.quick-cash{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}
-.quick-cash button{padding:11px 4px;font-size:13px;background:#EDF1F5}
-.change-box{background:#E8F8F0;color:#1E8E5A;padding:14px;border-radius:10px;margin:12px 0;font-size:16px}
-.change-box .negative{color:var(--danger)}
-.receipt{font-size:13px;max-width:80mm;margin:0 auto}
-.receipt h2{text-align:center;font-size:19px}
-.receipt p{text-align:center;margin:4px 0}
-.receipt-row{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font-size:13px}
-.receipt-row span{overflow-wrap:anywhere}
-.receipt-row.total{font-size:19px;font-weight:800}
-.store-only{font-size:11px}
+/* ── Modal / payment / receipt ── */
+#app-modal {
+  margin: auto !important; /* CRITICAL: Forces native dialog to center perfectly */
+  border: 0;
+  border-radius: 16px;
+  padding: 20px;
+  width: calc(100% - 32px);
+  max-width: 420px;
+  max-height: 90dvh; /* Dynamic viewport height prevents mobile cutoff */
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+#app-modal::backdrop {
+  background: rgba(15, 23, 32, 0.7);
+  backdrop-filter: blur(2px); /* Adds a nice modern blur behind the modal */
+}
+
+.due { font-size: 36px; color: var(--accent); margin: 4px 0 16px; letter-spacing: -1px; }
+.quick-cash { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 10px 0; }
+.quick-cash button { padding: 11px 4px; font-size: 13px; background: #EDF1F5; }
+.change-box { background: #E8F8F0; color: #1E8E5A; padding: 14px; border-radius: 10px; margin: 12px 0; font-size: 16px; }
+.change-box .negative { color: var(--danger); }
+
+.receipt { font-size: 13px; max-width: 80mm; margin: 0 auto; }
+.receipt h2 { text-align: center; font-size: 19px; }
+.receipt p { text-align: center; margin: 4px 0; }
+.receipt-row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13px; }
+.receipt-row span { overflow-wrap: anywhere; }
+.receipt-row.total { font-size: 19px; font-weight: 800; }
+.store-only { font-size: 11px; }
 
 /* Toast */
 .toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translate(-50%,20px);background:var(--primary);color:#fff;padding:13px 18px;border-radius:10px;font-size:14px;z-index:100;opacity:0;pointer-events:none;transition:.2s;max-width:90%;text-align:center}
