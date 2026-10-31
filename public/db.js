@@ -208,3 +208,28 @@ async function addLedgerEntry(entry) {
   const t = db.transaction('ledger', 'readwrite');
   return done(t, t.objectStore('ledger').add(entry));
 }
+
+async function getTotalOutstandingUtang() {
+  const t = db.transaction('ledger', 'readonly');
+  const allEntries = await new Promise((resolve, reject) => {
+    const req = t.objectStore('ledger').getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+  // Calculate net balance: debt adds, payment subtracts
+  const total = allEntries.reduce((sum, entry) => {
+    return entry.type === 'debt' ? sum + entry.amount : sum - entry.amount;
+  }, 0);
+
+  // Count unique customers who currently owe > 0
+  const customerBalances = {};
+  allEntries.forEach(entry => {
+    if (!customerBalances[entry.customerId]) customerBalances[entry.customerId] = 0;
+    customerBalances[entry.customerId] += (entry.type === 'debt' ? entry.amount : -entry.amount);
+  });
+  
+  const debtorsCount = Object.values(customerBalances).filter(balance => balance > 0).length;
+
+  return { total: Math.max(0, total), debtorsCount };
+}

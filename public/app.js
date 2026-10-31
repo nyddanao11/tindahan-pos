@@ -91,17 +91,25 @@ window.__bootApp = async () => {
     return;
   }
 
+  // 1. Setup navigation listeners
   setupNav();
+  
+  // 2. Set initial status and render the first view
   updateStatus(navigator.onLine);
   renderDashboard();
 
+  // 3. Setup online/offline listeners
   window.addEventListener('online', () => updateStatus(true));
   window.addEventListener('offline', () => { updateStatus(false); toast('Offline mode — you can still sell.'); });
 
+  // 4. Register Service Worker for offline support
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
+
+  // 5. Show welcome modal on first launch (after 500ms delay so dashboard renders first)
+  setTimeout(() => showWelcomeModal(), 500);
 };
 
 function updateStatus(online) {
@@ -125,10 +133,11 @@ function setupNav() {
       if (view === 'dashboard') renderDashboard();
       if (view === 'pos') renderPOS();
       if (view === 'inventory') renderInventory();
-      if (view === 'ledger') renderLedger();       // <-- MUST BE HERE
+      if (view === 'ledger') renderLedger();
       if (view === 'reports') renderReports(); 
     });
   });
+  // NOTE: No renderDashboard() or setTimeout here. setupNav only sets up listeners!
 }
 
 /* ---------------- ONE GLOBAL CLICK HANDLER ---------------- */
@@ -139,6 +148,22 @@ document.addEventListener('click', async (e) => {
   const id = b.dataset.id ? Number(b.dataset.id) : null;
 
   switch (a) {
+        case 'close-welcome':
+      localStorage.setItem('tindahan_welcome_shown', 'true');
+      closeModal();
+      break;
+          case 'load-sample-data':
+      showSampleDataWarning();
+      break;
+      
+    case 'confirm-load-samples':
+      await loadSampleData();
+      break;
+    case 'go-to-ledger':
+      // Programmatically click the ledger nav button to switch tabs
+      const ledgerBtn = document.querySelector('.nav-btn[data-view="ledger"]');
+      if (ledgerBtn) ledgerBtn.click();
+      break;
     case 'new-item':
       state.editingId = null; state.showForm = true; state.formImage = '';
       await renderInventory();
@@ -234,6 +259,7 @@ document.addEventListener('click', async (e) => {
       }, 100);
       toast('Customer added and selected!');
       break;
+
 
       // Global click handler additions for Ledger
 // ADD THESE CASES to your existing switch(a) statement in the global click listener:
@@ -372,6 +398,11 @@ async function renderDashboard() {
   const profit = todaySales.reduce((sum, s) => sum + (s.profit || 0), 0);
   const stockValue = items.reduce((sum, i) => sum + toCents(i.cost) * (Number(i.stock) || 0), 0);
 
+   // 🔥 NEW: Calculate Total Utang
+  const utangData = await getTotalOutstandingUtang();
+  const totalUtangPesos = utangData.total;
+  const debtorsCount = utangData.debtorsCount;
+
   const low = items.filter(i => (Number(i.stock) || 0) <= (i.reorderLevel ?? 5));
   const expired = items.filter(i => { const d = daysLeft(i.expiryDate); return d !== null && d < 0; });
   const expiring = items.filter(i => { const d = daysLeft(i.expiryDate); return d !== null && d >= 0 && d <= 7; });
@@ -390,12 +421,38 @@ async function renderDashboard() {
     <h2>Store Overview</h2>
     <p class="muted">${new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
 
-    <div class="stats-grid">
+       <div class="stats-grid">
       <div class="stat"><small>Today's sales</small><strong>${money(revenue)}</strong></div>
       <div class="stat green"><small>Today's profit</small><strong>${money(profit)}</strong></div>
       <div class="stat"><small>Items tracked</small><strong>${items.length}</strong></div>
       <div class="stat"><small>Stock value (cost)</small><strong>${money(stockValue)}</strong></div>
     </div>
+
+    <!-- 🔥 NEW: Total Utang Alert Card -->
+    ${totalUtangPesos > 0 ? `
+    <div class="card attention" style="border-left-color: var(--danger); cursor: pointer;" data-action="go-to-ledger">
+      <div class="row-between" style="margin-bottom: 0;">
+        <div>
+          <h3 style="margin:0; color: var(--danger);">📒 Total Outstanding Utang</h3>
+          <p class="muted" style="margin: 4px 0 0;">${debtorsCount} customer${debtorsCount !== 1 ? 's' : ''} owe you money</p>
+        </div>
+        <div style="text-align: right;">
+          <strong style="font-size: 28px; color: var(--danger);">${money(totalUtangPesos * 100)}</strong>
+          <div style="font-size: 12px; color: var(--accent); font-weight: 600; margin-top: 4px;">View Debtors →</div>
+        </div>
+      </div>
+    </div>
+    ` : `
+    <div class="card" style="border-left: 4px solid var(--success);">
+      <div class="row-between" style="margin-bottom: 0;">
+        <div>
+          <h3 style="margin:0; color: var(--success);">📒 Ledger Status</h3>
+          <p class="muted" style="margin: 4px 0 0;">Excellent! No outstanding utang.</p>
+        </div>
+        <button class="btn-small" data-action="go-to-ledger">Manage Ledger</button>
+      </div>
+    </div>
+    `}
 
     <div class="card attention">
       <h3>⚠️ Protect your profit</h3>
@@ -1275,6 +1332,59 @@ async function handleScannedBarcode(scannedCode) {
   }
 }
 
+function showWelcomeModal() {
+  // Only show once per device
+  if (localStorage.getItem('tindahan_welcome_shown')) return;
+  
+  modal(`
+    <div style="text-align:center;">
+      <div style="font-size:48px; margin-bottom:8px;">🛒</div>
+      <h2 style="margin-bottom:4px;">Welcome to Tindahan POS!</h2>
+      <p class="muted">Your offline-first store management system</p>
+    </div>
+    
+    <div style="margin-top:20px;">
+      <div style="display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-bottom:1px solid #F0F3F6;">
+        <div style="font-size:24px; flex-shrink:0;">📦</div>
+        <div>
+          <strong style="display:block;">Add your products first</strong>
+          <small class="muted">Go to <b>Inventory</b> tab and tap "＋ Add item" to start building your catalog.</small>
+        </div>
+      </div>
+      
+      <div style="display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-bottom:1px solid #F0F3F6;">
+        <div style="font-size:24px; flex-shrink:0;">🛒</div>
+        <div>
+          <strong style="display:block;">Tap items to sell</strong>
+          <small class="muted">In the <b>POS</b> tab, tap products to add them to the cart. Enter cash and you're done!</small>
+        </div>
+      </div>
+      
+      <div style="display:flex; gap:12px; align-items:flex-start; padding:12px 0; border-bottom:1px solid #F0F3F6;">
+        <div style="font-size:24px; flex-shrink:0;">📒</div>
+        <div>
+          <strong style="display:block;">Track pautang easily</strong>
+          <small class="muted">Use the <b>Ledger</b> tab to record customer debts and send SMS reminders.</small>
+        </div>
+      </div>
+      
+      <div style="display:flex; gap:12px; align-items:flex-start; padding:12px 0;">
+        <div style="font-size:24px; flex-shrink:0;">💾</div>
+        <div>
+          <strong style="display:block;">Backup your data weekly</strong>
+          <small class="muted">On the Dashboard, tap <b>Export backup</b> to save your data as a JSON file.</small>
+        </div>
+      </div>
+    </div>
+    
+    <div style="margin-top:20px; padding:12px; background:#FFF4E0; border-radius:8px; text-align:center;">
+      <small style="color:#B9770E;">💡 <b>Pro tip:</b> Tap "Load Sample Items" on the Dashboard to instantly add 15 common products!</small>
+    </div>
+    
+    <button class="btn-primary" data-action="close-welcome" style="margin-top:16px;">Got it! Let's start</button>
+  `);
+}
+
 /* ── LEDGER / PAUTANG SYSTEM ── */
 async function renderLedger() {
   const customers = await getAllCustomers();
@@ -1366,6 +1476,8 @@ async function renderCustomerDetail(customerId) {
     </div>
   `;
 }
+
+
 
 /* ── MONTHLY REPORTS & EXPORT ── */
 async function renderReports() {
@@ -1556,4 +1668,99 @@ function printReport() {
   `;
 
   window.print();
+}
+
+function showSampleDataWarning() {
+  const hasExistingItems = state.items && state.items.length > 0;
+  
+  modal(`
+    <div style="text-align:center;">
+      <div style="font-size:48px; margin-bottom:8px;">⚠️</div>
+      <h2>Load Sample Items?</h2>
+      <p class="muted">Please read carefully before proceeding</p>
+    </div>
+    
+    <div style="margin-top:20px;">
+      <div style="padding:14px; background:#E8F8F0; border-radius:8px; margin-bottom:12px;">
+        <strong style="color:#1E8E5A;">✓ What will happen:</strong>
+        <ul style="margin:8px 0 0 20px; padding:0; color:var(--text); font-size:14px;">
+          <li>15 common sari-sari store items will be added</li>
+          <li>Each item has realistic prices, costs, and stock levels</li>
+          <li>Your existing items will NOT be deleted</li>
+        </ul>
+      </div>
+      
+      ${hasExistingItems ? `
+      <div style="padding:14px; background:#FFF4E0; border-radius:8px; margin-bottom:12px;">
+        <strong style="color:#B9770E;">⚠️ Important note:</strong>
+        <p style="margin:8px 0 0; font-size:14px; color:var(--text);">
+          You already have <b>${state.items.length} items</b> in your inventory. 
+          Sample items will be added alongside them.
+        </p>
+      </div>
+      ` : ''}
+      
+      <div style="padding:14px; background:#F4F6F8; border-radius:8px;">
+        <strong>💡 After loading, remember to:</strong>
+        <ul style="margin:8px 0 0 20px; padding:0; color:var(--text); font-size:14px;">
+          <li>Update <b>Cost</b> to match your supplier prices</li>
+          <li>Adjust <b>Stock</b> to match your actual inventory</li>
+          <li>Edit or delete items you don't sell</li>
+        </ul>
+      </div>
+    </div>
+    
+    <label style="display:flex; gap:10px; align-items:center; margin-top:20px; padding:12px; background:#F4F6F8; border-radius:8px; cursor:pointer;">
+      <input type="checkbox" id="sample-confirm-check" style="width:20px; height:20px; margin:0;">
+      <span style="font-size:14px; font-weight:600;">I understand and want to proceed</span>
+    </label>
+    
+    <div style="display:flex; gap:10px; margin-top:16px;">
+      <button class="btn-small" data-action="close-modal" style="flex:1;">Cancel</button>
+      <button class="btn-primary" id="confirm-load-samples" data-action="confirm-load-samples" disabled style="flex:2;">Load Sample Items</button>
+    </div>
+  `);
+  
+  // Enable button only when checkbox is checked
+  const checkbox = $('#sample-confirm-check');
+  const confirmBtn = $('#confirm-load-samples');
+  
+  checkbox.onchange = () => {
+    confirmBtn.disabled = !checkbox.checked;
+  };
+}
+
+async function loadSampleData() {
+  const sampleItems = [
+    { name: "Coke 1.5L", sku: "888888888888", category: "Drinks", unit: "bottle", price: 85, cost: 72, stock: 12, reorderLevel: 5 },
+    { name: "Lucky Me Pancit Canton", sku: "CANTON01", category: "Noodles", unit: "pack", price: 15, cost: 12.5, stock: 48, reorderLevel: 10 },
+    { name: "Piattos Barbecue", sku: "PIATTOS01", category: "Snacks", unit: "pack", price: 15, cost: 12, stock: 30, reorderLevel: 10 },
+    { name: "White Rabbit Candy", sku: "CANDY01", category: "Snacks", unit: "pcs", price: 3, cost: 2, stock: 100, reorderLevel: 20 },
+    { name: "Royal 1.5L", sku: "888888888889", category: "Drinks", unit: "bottle", price: 85, cost: 72, stock: 12, reorderLevel: 5 },
+    { name: "Del Monte Fruit Cocktail", sku: "FRUIT01", category: "Canned Goods", unit: "can", price: 95, cost: 80, stock: 10, reorderLevel: 3 },
+    { name: "Joy Dishwashing Liquid 250ml", sku: "JOY01", category: "Cleaning", unit: "bottle", price: 45, cost: 38, stock: 15, reorderLevel: 5 },
+    { name: "Safeguard Soap 130g", sku: "SOAP01", category: "Personal Care", unit: "pcs", price: 55, cost: 45, stock: 20, reorderLevel: 5 },
+    { name: "Marlboro Red (Pack)", sku: "CIG01", category: "Cigarettes", unit: "pack", price: 150, cost: 135, stock: 10, reorderLevel: 3 },
+    { name: "Magic Flakes 80g", sku: "CEREAL01", category: "Snacks", unit: "pack", price: 45, cost: 38, stock: 15, reorderLevel: 5 },
+    { name: "Nescafe Original 3-in-1", sku: "COFFEE01", category: "Drinks", unit: "sachet", price: 12, cost: 10, stock: 50, reorderLevel: 10 },
+    { name: "Plastic Bag (S)", sku: "PLASTIC01", category: "Other", unit: "pcs", price: 1, cost: 0.5, stock: 500, reorderLevel: 100 },
+    { name: "Plastic Bag (M)", sku: "PLASTIC02", category: "Other", unit: "pcs", price: 2, cost: 1, stock: 500, reorderLevel: 100 },
+    { name: "Matchbox", sku: "MATCH01", category: "Other", unit: "box", price: 2, cost: 1.5, stock: 50, reorderLevel: 10 },
+    { name: "Candle (White)", sku: "CANDLE01", category: "Other", unit: "pcs", price: 10, cost: 7, stock: 30, reorderLevel: 10 }
+  ];
+
+  try {
+    for (const item of sampleItems) {
+      await saveItem({
+        ...item,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    }
+    closeModal();
+    toast('✓ 15 sample items added successfully!');
+    renderInventory();
+  } catch (err) {
+    toast('Failed to load sample data: ' + err.message, 'error');
+  }
 }
