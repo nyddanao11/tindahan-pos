@@ -19,6 +19,24 @@ const state = {
   previousView: 'dashboard' // <-- ADD THIS LINE
 };
 
+let savedCartState = null;
+
+function saveCartTemporarily() {
+  savedCartState = {
+    cart: [...state.cart],
+    discount: state.discount
+  };
+}
+
+function restoreCartTemporarily() {
+  if (savedCartState) {
+    state.cart = savedCartState.cart;
+    state.discount = savedCartState.discount;
+    persistCart();
+    savedCartState = null;
+  }
+}
+
 function daysLeft(dateStr) {
   if (!dateStr) return null;
   
@@ -258,7 +276,8 @@ document.addEventListener('click', async (e) => {
       switchPaymentMethod(b.dataset.method);
       break;
 
-    case 'quick-add-customer':
+       case 'quick-add-customer':
+      saveCartTemporarily(); // 🔥 Save cart state before opening modal
       modal(`
         <div class="row-between"><h3>Quick Add Customer</h3><button class="icon-btn" data-action="close-modal">✕</button></div>
         <label>Full Name *<input id="qac-name" required placeholder="e.g. Juan Dela Cruz"></label>
@@ -268,7 +287,7 @@ document.addEventListener('click', async (e) => {
       `);
       break;
 
-    case 'save-quick-customer':
+      case 'save-quick-customer':
       const qName = $('#qac-name').value.trim();
       if (!qName) { toast('Name is required', 'error'); break; }
       const newCust = await saveCustomer({
@@ -278,8 +297,11 @@ document.addEventListener('click', async (e) => {
         createdAt: new Date().toISOString()
       });
       closeModal();
-      // Reopen checkout and auto-select the new customer
+      
+      // 🔥 Restore cart and reopen checkout with new customer selected
+      restoreCartTemporarily();
       openCheckout();
+      
       setTimeout(() => {
         const select = $('#utang-customer');
         if (select) {
@@ -1278,14 +1300,23 @@ async function showReceipt(id) {
 /* ── BACKUP EXPORT/IMPORT LOGIC ── */
 
 async function exportBackup() {
+  // 🔥 Properly fetch ledger data using the helper function
+  const ledgerData = await new Promise((resolve, reject) => {
+    const t = db.transaction('ledger', 'readonly');
+    const req = t.objectStore('ledger').getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
   const data = {
-    app: 'tindahan-pos', version: 4, // Updated version
+    app: 'tindahan-pos', version: 4,
     exportedAt: new Date().toISOString(),
     items: await getAllItems(), 
     sales: await getAllSales(),
-    customers: await getAllCustomers(), // NEW
-    ledger: await db.transaction('ledger').objectStore('ledger').getAll() // NEW
+    customers: await getAllCustomers(),
+    ledger: ledgerData // 🔥 Now includes full ledger transactions with notes
   };
+  
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1302,10 +1333,25 @@ async function importBackup(file) {
     if (!Array.isArray(data.items)) throw new Error('Invalid backup file.');
     if (!confirm('REPLACE all current data with this backup? Export current data first if unsure.')) return;
 
-    const items = data.items.map(i => ({ ...i, price: Number(i.price)||0, cost: Number(i.cost)||0, stock: Math.max(0, parseInt(i.stock,10)||0) }));
+    const items = data.items.map(i => ({ 
+      ...i, 
+      price: Number(i.price)||0, 
+      cost: Number(i.cost)||0, 
+      stock: Math.max(0, parseInt(i.stock,10)||0) 
+    }));
+    
     const sales = Array.isArray(data.sales) ? data.sales.filter(s => s && Array.isArray(s.items)) : [];
-    const customers = Array.isArray(data.customers) ? data.customers : []; // NEW
-    const ledger = Array.isArray(data.ledger) ? data.ledger : []; // NEW
+    const customers = Array.isArray(data.customers) ? data.customers : [];
+    
+    // 🔥 Properly restore ledger with all fields (amount, description, notes, etc.)
+    const ledger = Array.isArray(data.ledger) ? data.ledger.map(l => ({
+      ...l,
+      customerId: Number(l.customerId),
+      amount: Number(l.amount) || 0,
+      type: l.type || 'debt',
+      description: l.description || '',
+      createdAt: l.createdAt || new Date().toISOString()
+    })) : [];
     
     await replaceAllData(items, sales, customers, ledger);
     state.cart = []; state.discount = ''; persistCart();
