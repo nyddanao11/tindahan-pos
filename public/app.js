@@ -19,10 +19,18 @@ const state = {
   previousView: 'dashboard' // <-- ADD THIS LINE
 };
 
-function daysLeft(date) {
-  if (!date) return null;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  return Math.round((new Date(date + 'T00:00:00') - today) / 86400000);
+function daysLeft(dateStr) {
+  if (!dateStr) return null;
+  
+  // 🔥 Parse "YYYY-MM-DD" manually to avoid timezone bugs
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const expDate = new Date(year, month - 1, day); // month is 0-indexed
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const diffMs = expDate - today;
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
 }
 
 function persistCart() {
