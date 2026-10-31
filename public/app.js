@@ -15,7 +15,8 @@ const CATS = ['Snacks', 'Drinks', 'Noodles', 'Canned Goods', 'Rice & Corn',
 const state = {
   view: 'dashboard', items: [], cart: [], discount: '',
   editingId: null, showForm: false, formImage: '',
-  search: '', category: 'All', invSearch: '', invCategory: 'All', saving: false
+  search: '', category: 'All', invSearch: '', invCategory: 'All', saving: false,
+  previousView: 'dashboard' // <-- ADD THIS LINE
 };
 
 function daysLeft(date) {
@@ -91,24 +92,24 @@ window.__bootApp = async () => {
     return;
   }
 
-  // 1. Setup navigation listeners
+  // 🔥 NEW: Load and apply custom store name immediately
+  const customName = await getStoreName();
+  const headerTitle = document.querySelector('header h1');
+  if (headerTitle) headerTitle.textContent = customName;
+  document.title = customName; // Also updates the browser tab!
+
   setupNav();
-  
-  // 2. Set initial status and render the first view
   updateStatus(navigator.onLine);
   renderDashboard();
 
-  // 3. Setup online/offline listeners
   window.addEventListener('online', () => updateStatus(true));
   window.addEventListener('offline', () => { updateStatus(false); toast('Offline mode — you can still sell.'); });
 
-  // 4. Register Service Worker for offline support
   if ('serviceWorker' in navigator &&
       (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
-  // 5. Show welcome modal on first launch (after 500ms delay so dashboard renders first)
   setTimeout(() => showWelcomeModal(), 500);
 };
 
@@ -159,6 +160,19 @@ document.addEventListener('click', async (e) => {
     case 'confirm-load-samples':
       await loadSampleData();
       break;
+    case 'save-store-name':
+      const newName = $('#store-name-input').value.trim();
+      if (!newName) { toast('Store name cannot be empty.', 'error'); break; }
+      
+      await setStoreName(newName);
+      
+      // Update UI instantly without reloading
+      const headerTitle = document.querySelector('header h1');
+      if (headerTitle) headerTitle.textContent = newName;
+      document.title = newName;
+      
+      toast('Store name updated!');
+      break;
     case 'go-to-ledger':
       // Programmatically click the ledger nav button to switch tabs
       const ledgerBtn = document.querySelector('.nav-btn[data-view="ledger"]');
@@ -173,9 +187,17 @@ document.addEventListener('click', async (e) => {
 
     case 'edit-item': await startEdit(id); break;
     case 'delete-item': await removeItem(id); break;
-    case 'cancel-edit':
+       case 'cancel-edit':
       state.editingId = null; state.showForm = false; state.formImage = '';
-      await renderInventory();
+      if (state.previousView === 'dashboard') {
+        state.view = 'dashboard';
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+        const dashBtn = document.querySelector('.nav-btn[data-view="dashboard"]');
+        if (dashBtn) dashBtn.classList.add('active');
+        await renderDashboard();
+      } else {
+        await renderInventory();
+      }
       break;
 
     case 'category':
@@ -402,6 +424,8 @@ async function renderDashboard() {
   const utangData = await getTotalOutstandingUtang();
   const totalUtangPesos = utangData.total;
   const debtorsCount = utangData.debtorsCount;
+   // 🔥 NEW: Get current store name for the input field
+  const storeName = await getStoreName();
 
   const low = items.filter(i => (Number(i.stock) || 0) <= (i.reorderLevel ?? 5));
   const expired = items.filter(i => { const d = daysLeft(i.expiryDate); return d !== null && d < 0; });
@@ -492,6 +516,15 @@ async function renderDashboard() {
         <button class="btn-small" data-action="import">Import backup</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" hidden>
+    </div>
+
+      <div class="card">
+      <h3>🏪 Store Name</h3>
+      <p class="muted">This name appears at the top of the app and on printed receipts.</p>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input id="store-name-input" type="text" value="${esc(storeName)}" placeholder="e.g. Yeilva Tindahan" style="margin-bottom:0; flex:1;">
+        <button class="btn-primary small" data-action="save-store-name" style="width:auto; white-space:nowrap;">Save</button>
+      </div>
     </div>
 
     <div class="card">
@@ -671,9 +704,20 @@ async function fillEditForm(id) {
 }
 
 async function startEdit(id) {
-  state.editingId = id; state.showForm = true;
+  // 1. Remember where the user clicked "Edit" from
+  state.previousView = state.view; 
+  state.editingId = id; 
+  state.showForm = true;
+  
+  // 2. Visually switch the bottom nav to 'Inventory' so they aren't confused
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const invBtn = document.querySelector('.nav-btn[data-view="inventory"]');
+  if (invBtn) invBtn.classList.add('active');
+
   await renderInventory();
-  $('#item-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  
+  // 3. Smooth scroll to the form (timeout ensures it scrolls after rendering)
+  setTimeout(() => $('#item-form').scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
   $('#f-name').focus();
 }
 
@@ -694,7 +738,7 @@ async function saveItemFromForm() {
     const existing = state.editingId ? await getItem(state.editingId) : null;
     const item = {
       name, sku,
-     category: (() => {
+      category: (() => {
         const selectVal = $('#f-category-select').value;
         const customVal = $('#f-category-custom')?.value.trim();
         if (selectVal === '__custom__' && customVal) return customVal;
@@ -714,10 +758,29 @@ async function saveItemFromForm() {
     if (existing) item.id = existing.id;
 
     await saveItem(item);
-    state.editingId = null; state.showForm = false; state.formImage = '';
-    await renderInventory();
+    
+    state.editingId = null; 
+    state.showForm = false; 
+    state.formImage = '';
+    
+    // 🔥 SMART ROUTING: Return to the view they came from
+    if (state.previousView === 'dashboard') {
+      state.view = 'dashboard';
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      const dashBtn = document.querySelector('.nav-btn[data-view="dashboard"]');
+      if (dashBtn) dashBtn.classList.add('active');
+      await renderDashboard();
+    } else {
+      state.view = 'inventory';
+      await renderInventory();
+    }
+    
     toast(existing ? 'Item updated.' : 'Item saved offline.');
-  } catch (err) { toast('Save failed: ' + err.message, 'error'); }
+    
+  } catch (err) { 
+    // 🔥 THIS WAS MISSING IN YOUR SNIPPET!
+    toast('Save failed: ' + err.message, 'error'); 
+  }
 }
 
 async function removeItem(id) {
@@ -1150,9 +1213,11 @@ function receiptHTML(s) {
   const methodLabel = method === 'cash' ? '💵 Cash' 
     : method === 'ewallet' ? `📱 ${s.ewalletProvider || 'E-Wallet'}` 
     : '📒 Utang (Credit)';
+  // We read the current header text, which holds the custom store name
+  const currentStoreName = document.querySelector('header h1')?.textContent || 'Tindahan POS';
 
-  return `<div class="receipt" id="receipt-print">
-    <h2>Tindahan POS</h2>
+   return `<div class="receipt" id="receipt-print">
+    <h2>${esc(currentStoreName)}</h2>
     <p class="muted">${esc(s.receiptNo)}</p>
     <p class="muted">${new Date(s.createdAt).toLocaleString()}</p>
     ${s.customerName ? `<p style="text-align:center; font-weight:600; margin-top:8px;">Customer: ${esc(s.customerName)}</p>` : ''}

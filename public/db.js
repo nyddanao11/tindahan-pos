@@ -233,3 +233,21 @@ async function getTotalOutstandingUtang() {
 
   return { total: Math.max(0, total), debtorsCount };
 }
+
+async function getStoreName() {
+  const t = db.transaction('settings', 'readonly');
+  const req = t.objectStore('settings').get('storeName');
+  return new Promise((resolve) => {
+    req.onsuccess = () => resolve(req.result ? req.result.value : 'Tindahan POS');
+    req.onerror = () => resolve('Tindahan POS'); // Fallback default
+  });
+}
+
+async function setStoreName(name) {
+  const t = db.transaction('settings', 'readwrite');
+  return new Promise((resolve, reject) => {
+    t.objectStore('settings').put({ key: 'storeName', value: name });
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  });
+}
